@@ -1,0 +1,510 @@
+<script type="text/babel">
+    const { useState, useEffect, useCallback, useMemo, useRef } = React;
+
+    // ==========================================
+    //  CONSTANTS & CONFIG
+    // ==========================================
+    const CONSTANTS = {
+        POLLING_INTERVAL: 30000,
+        MAX_RETRY: 3,
+        MIN_SCALE: 1,
+        MAX_SCALE: 4,
+        ZOOM_STEP: 0.5,
+    };
+
+    const PIN_COLORS = [
+        { id: 'red', color: '#EF4444', label: 'あか' },
+        { id: 'blue', color: '#3B82F6', label: 'あお' },
+        { id: 'yellow', color: '#EAB308', label: 'きいろ' },
+        { id: 'green', color: '#22C55E', label: 'みどり' },
+        { id: 'purple', color: '#A855F7', label: 'むらさき' },
+        { id: 'pink', color: '#EC4899', label: 'ぴんく' },
+        { id: 'cyan', color: '#06B6D4', label: 'みずいろ' },
+        { id: 'orange', color: '#F97316', label: 'おれんじ' },
+    ];
+
+    // ==========================================
+    //  API WRAPPER (Robustness)
+    // ==========================================
+    class ClientAPI {
+        static async run(functionName, ...args) {
+            let attempt = 0;
+            while (attempt < CONSTANTS.MAX_RETRY) {
+                try {
+                    return await new Promise((resolve, reject) => {
+                        if (typeof google === 'undefined') {
+                            console.log(`[Dev] Call ${functionName}`, args);
+                            setTimeout(() => resolve(JSON.stringify({ status: 'success', data: [], groups: [] })), 500);
+                            return;
+                        }
+                        google.script.run
+                            .withSuccessHandler(resolve)
+                            .withFailureHandler(reject)
+                        [functionName](...args);
+                    });
+                } catch (e) {
+                    attempt++;
+                    console.warn(`API Error (${functionName})`, e);
+                    if (attempt >= CONSTANTS.MAX_RETRY) throw e;
+                    await new Promise(r => setTimeout(r, 1000 * attempt));
+                }
+            }
+        }
+
+        static async getPinData() {
+            const res = await this.run('getPinData');
+            return JSON.parse(res);
+        }
+        static async savePinData(payload) {
+            const res = await this.run('savePinData', JSON.stringify(payload));
+            return JSON.parse(res);
+        }
+        static async saveMapSetting(payload) {
+            const res = await this.run('saveMapSetting', JSON.stringify(payload));
+            return JSON.parse(res);
+        }
+        static async saveGroupData(payload) {
+            const res = await this.run('saveGroupData', JSON.stringify(payload));
+            return JSON.parse(res);
+        }
+    }
+
+    // ==========================================
+    //  HELPER FUNCTIONS
+    // ==========================================
+    const resolveImageUrl = (url) => {
+        if (!url) return null;
+        if (url.includes('drive.google.com/thumbnail')) return url;
+        if (url.includes('lh3.googleusercontent.com')) return url;
+        const idMatch = url.match(/id=([^&]+)/) || url.match(/\/d\/([^\/]+)/);
+        if (idMatch && idMatch[1]) return `https://drive.google.com/thumbnail?sz=w1000&id=${idMatch[1]}`;
+        return url;
+    };
+
+    const compressImage = (file) => {
+        return new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                const img = new Image();
+                img.onload = () => {
+                    const canvas = document.createElement('canvas');
+                    const MAX_SIZE = 800;
+                    let w = img.width; let h = img.height;
+                    if (w > h) { if (w > MAX_SIZE) { h *= MAX_SIZE / w; w = MAX_SIZE; } }
+                    else { if (h > MAX_SIZE) { w *= MAX_SIZE / h; h = MAX_SIZE; } }
+                    canvas.width = w; canvas.height = h;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0, w, h);
+                    resolve(canvas.toDataURL('image/jpeg', 0.7));
+                };
+                img.onerror = reject; img.src = e.target.result;
+            };
+            reader.onerror = reject; reader.readAsDataURL(file);
+        });
+    };
+
+    const RubyText = ({ text, sub }) => (<ruby>{text}<rt>{sub}</rt></ruby>);
+    const LoadingOverlay = () => (<div id="loading-overlay"><div className="spinner-google"></div><h3>処理中...</h3></div>);
+    const PinIcon = ({ color, onClick, style }) => (
+        <div className="pin" onClick={onClick} style={{ color: color, ...style }}>
+            <svg viewBox="0 0 24 24" width="48" height="48" fill="currentColor" stroke="white" strokeWidth="1.5">
+                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+            </svg>
+        </div>
+    );
+
+    // ==========================================
+    //  APP COMPONENT
+    // ==========================================
+    const App = () => {
+        const [isLoading, setIsLoading] = useState(false);
+        const [pins, setPins] = useState([]);
+        const [groups, setGroups] = useState([]); // Dynamic Groups
+        const [mapUrl, setMapUrl] = useState('');
+        const [myGroup, setMyGroup] = useState(null);
+
+        const [selectedPin, setSelectedPin] = useState(null);
+        const [createPos, setCreatePos] = useState(null);
+        const [viewMode, setViewMode] = useState('mine');
+        const [currentGroupTab, setCurrentGroupTab] = useState(0); // For pagination if needed, currently unused
+
+        // Teacher Dashboard State
+        const [showTeacherDashboard, setShowTeacherDashboard] = useState(false);
+
+        // Map Transform
+        const [transform, setTransform] = useState({ scale: 1, x: 0, y: 0 });
+        const mapRef = useRef(null);
+        const isDragging = useRef(false);
+        const isPointerDown = useRef(false);
+        const dragStart = useRef({ x: 0, y: 0 });
+
+        useEffect(() => {
+            fetchData();
+            const interval = setInterval(fetchData, CONSTANTS.POLLING_INTERVAL);
+            return () => clearInterval(interval);
+        }, []);
+
+        const fetchData = async () => {
+            try {
+                const res = await ClientAPI.getPinData();
+                if (res.status === 'success') {
+                    setPins(res.data);
+                    setMapUrl(res.map_url);
+                    if (res.groups && res.groups.length > 0) setGroups(res.groups);
+                }
+            } catch (e) { console.error(e); }
+        };
+
+        const handleSavePin = async (data) => {
+            setIsLoading(true);
+            try {
+                const payload = {
+                    action: 'save_pin', id: `pin_${Date.now()}_${Math.random()}`,
+                    pin_color: data.color.color, group_id: myGroup, author_name: data.author,
+                    map_x: createPos.x, map_y: createPos.y, shop_name: data.shop,
+                    description: data.desc, image_data: data.image
+                };
+                const res = await ClientAPI.savePinData(payload);
+                if (res.status === 'success') {
+                    Swal.fire({ icon: 'success', title: 'ピンをさしました！', toast: true, position: 'top', timer: 3000, showConfirmButton: false });
+                    setCreatePos(null); fetchData();
+                } else { Swal.fire('エラー', res.message, 'error'); }
+            } catch (e) { Swal.fire('エラー', e.message, 'error'); } finally { setIsLoading(false); }
+        };
+
+        const handleDeletePin = async (id, password) => {
+            setIsLoading(true);
+            try {
+                const res = await ClientAPI.savePinData({ action: 'delete_pin', target_id: id, password });
+                if (res.status === 'success') {
+                    Swal.fire({ icon: 'success', title: '削除しました', toast: true, position: 'top', timer: 3000 });
+                    setSelectedPin(null); fetchData();
+                } else { Swal.fire('エラー', res.message, 'error'); }
+            } catch (e) { Swal.fire('エラー', e.message, 'error'); } finally { setIsLoading(false); }
+        };
+
+        // --- Map Actions ---
+        const handlePointerDown = (e) => {
+            if (e.target.closest('.btn') || e.target.closest('.pin')) return;
+            isPointerDown.current = true; isDragging.current = false;
+            dragStart.current = { x: e.clientX - transform.x, y: e.clientY - transform.y };
+            e.currentTarget.setPointerCapture(e.pointerId);
+        };
+        const handlePointerMove = (e) => {
+            if (!isPointerDown.current) return;
+            if (Math.abs(e.clientX - dragStart.current.x - transform.x) > 5) isDragging.current = true;
+            if (isDragging.current) setTransform(prev => ({ ...prev, x: e.clientX - dragStart.current.x, y: e.clientY - dragStart.current.y }));
+        };
+        const handleMapClick = (e) => {
+            if (isDragging.current) return;
+            if (viewMode === 'mine' && myGroup && myGroup !== 'teacher') {
+                const rect = mapRef.current.getBoundingClientRect();
+                setCreatePos({ x: ((e.clientX - rect.left) / rect.width) * 100, y: ((e.clientY - rect.top) / rect.height) * 100 });
+            }
+        };
+
+        // --- Teacher API ---
+        const updateMapUrl = async (url) => {
+            setIsLoading(true);
+            await ClientAPI.saveMapSetting({ map_url: url, password: 'sensei' }); // Password verification is server-side mostly, but client sends it wrapper
+            // Actually dashboard should ask password or assume logged in teacher knows it? 
+            // Current design: TeacherDashboard is only accessible after password login, so we might need to pass it again or prompt.
+            // Let's pass 'sensei' as hardcode here assuming dashboard is secure, OR prompt again.
+            // Simplify: Dashboard asks for password on ENTRY, so we trust user is teacher. 
+            // But API requires password. We'll reuse the one entered or prompt.
+            // For UX, let's implement the prompt in Dashboard.
+            setIsLoading(false);
+            fetchData();
+        };
+
+        // --- Render ---
+        if (!myGroup) {
+            return (
+                <div className="container min-vh-100 d-flex align-items-center justify-content-center">
+                    <div className="card shadow-lg border-0 rounded-4 w-100" style={{ maxWidth: '800px' }}>
+                        <div className="card-body p-5 text-center">
+                            <h1 className="display-4 text-primary mb-2 font-weight-bold">
+                                <span className="me-2">📍</span><RubyText text="地図" sub="ちず" /><span className="mx-2"></span><RubyText text="探検" sub="たんけん" /><span className="mx-2"></span><RubyText text="隊" sub="たい" />
+                            </h1>
+                            <p className="lead text-muted mb-5">あなたの <RubyText text="班" sub="はん" /> を <RubyText text="選" sub="えら" /> んでね</p>
+                            <div className="group-pad">
+                                {groups.length === 0 ? <div className="col-12 text-center text-muted">読み込み中...</div> :
+                                    groups.map(g => (
+                                        <button key={g.id} className="btn btn-outline-primary rounded-pill py-3 font-weight-bold" onClick={() => setMyGroup(g.id)}>{g.name}</button>
+                                    ))
+                                }
+                            </div>
+                            <div className="mt-5 border-top pt-4">
+                                <button className="btn btn-sm btn-link text-muted" onClick={async () => {
+                                    const { value: pass } = await Swal.fire({ title: '先生用パスワード', input: 'password', showCancelButton: true });
+                                    if (pass) {
+                                        // Login check with server? or simple client check for now based on config
+                                        if (pass === 'sensei') { setMyGroup('teacher'); setViewMode('all'); } // TODO: Server verify ideal
+                                        else Swal.fire('パスワードがちがいます', '', 'error');
+                                    }
+                                }}>先生用メニュー</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        const filteredPins = pins.filter(p => viewMode === 'all' || p.group_id === myGroup);
+
+        return (
+            <div id="app-container">
+                {isLoading && <LoadingOverlay />}
+
+                <nav className="navbar navbar-expand bg-white shadow-sm px-3 flex-shrink-0" style={{ height: '70px', zIndex: 1000 }}>
+                    <div className="container-fluid">
+                        <span className="navbar-brand font-weight-bold text-primary d-flex align-items-center">
+                            <span className="me-2">📍</span>
+                            {myGroup === 'teacher' ? '先生モード' : (groups.find(g => g.id === myGroup)?.name || '未所属')}
+                        </span>
+                        <div className="d-flex gap-2">
+                            <button className="btn btn-light rounded-pill" onClick={() => setMyGroup(null)}>🏠 <RubyText text="戻" sub="もど" />る</button>
+                            {myGroup !== 'teacher' && (
+                                <button className={`btn rounded-pill font-weight-bold ${viewMode === 'mine' ? 'btn-google' : 'btn-outline-secondary'}`}
+                                    onClick={() => setViewMode(prev => prev === 'mine' ? 'all' : 'mine')}>
+                                    {viewMode === 'mine' ? '🌏 みんなの地図' : '👀 じぶんの班'}
+                                </button>
+                            )}
+                            {myGroup === 'teacher' && (
+                                <button className="btn btn-dark rounded-pill" onClick={() => setShowTeacherDashboard(true)}>🔧 <RubyText text="管理" sub="かんり" /></button>
+                            )}
+                            <button className="btn btn-primary rounded-pill" onClick={() => { fetchData(); Swal.fire({ icon: 'success', title: '更新しました', toast: true, position: 'top', timer: 1500, showConfirmButton: false }); }}>🔄 <RubyText text="更新" sub="こうしん" /></button>
+                        </div>
+                    </div>
+                </nav>
+
+                <div id="map-wrapper" onPointerDown={handlePointerDown} onPointerMove={handlePointerMove} onPointerUp={e => { isPointerDown.current = false; e.currentTarget.releasePointerCapture(e.pointerId); }} onPointerLeave={e => { isPointerDown.current = false; e.currentTarget.releasePointerCapture(e.pointerId); }} onClick={handleMapClick}>
+                    <div style={{ transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`, transformOrigin: 'top left', width: 'fit-content', height: 'fit-content', minWidth: '100%', minHeight: '100%' }}>
+                        <img ref={mapRef} src={resolveImageUrl(mapUrl)} className="d-block" style={{ maxWidth: 'none', pointerEvents: 'none' }} onDragStart={e => e.preventDefault()} />
+                        {filteredPins.map(pin => <PinIcon key={pin.id} color={pin.pin_color} style={{ left: `${pin.map_x}%`, top: `${pin.map_y}%` }} onClick={(e) => { e.stopPropagation(); setSelectedPin(pin); }} />)}
+                        {createPos && <div className="pin-new" style={{ left: `${createPos.x}%`, top: `${createPos.y}%` }}><PinIcon color="#999" style={{ position: 'static', transform: 'none' }} /><div className="bg-white px-2 py-1 rounded shadow text-xs font-bold text-nowrap absolute top-0 start-100 translate-middle-y">ここにピンをさす</div></div>}
+                    </div>
+                </div>
+
+                <div className="fab-container">
+                    <button className="btn btn-light btn-fab text-primary" onClick={() => setTransform(p => ({ ...p, scale: Math.min(p.scale + 0.5, 4) }))}>＋</button>
+                    <button className="btn btn-light btn-fab text-primary" onClick={() => setTransform(p => ({ ...p, scale: Math.max(p.scale - 0.5, 1) }))}>－</button>
+                    <button className="btn btn-light btn-fab text-muted" onClick={() => setTransform({ scale: 1, x: 0, y: 0 })} style={{ fontSize: '14px' }}>戻す</button>
+                </div>
+
+                {createPos && <CreatePinModal pos={createPos} colors={PIN_COLORS} onClose={() => setCreatePos(null)} onSubmit={handleSavePin} />}
+                {selectedPin && <ViewPinModal pin={selectedPin} onClose={() => setSelectedPin(null)} isTeacher={myGroup === 'teacher'} onDelete={handleDeletePin} groupName={groups.find(g => g.id === selectedPin.group_id)?.name} />}
+                {showTeacherDashboard && <TeacherDashboard onClose={() => setShowTeacherDashboard(false)} mapUrl={mapUrl} groups={groups} pins={pins} onRefresh={fetchData} />}
+            </div>
+        );
+    };
+
+    const TeacherDashboard = ({ onClose, mapUrl, groups, pins, onRefresh }) => {
+        const [tab, setTab] = useState('map'); // 'map', 'group'
+        const [newMapUrl, setNewMapUrl] = useState(mapUrl);
+        const [editGroups, setEditGroups] = useState([...groups]);
+        const [isSaving, setIsSaving] = useState(false);
+
+        const handleUpdateMap = async () => {
+            const { value: pass } = await Swal.fire({ title: 'パスワードを入力', input: 'password', showCancelButton: true });
+            if (!pass) return;
+            setIsSaving(true);
+            try {
+                const res = await ClientAPI.saveMapSetting({ map_url: newMapUrl, password: pass });
+                if (res.status === 'success') { Swal.fire('完了', '地図を更新しました', 'success'); onRefresh(); }
+                else Swal.fire('エラー', res.message, 'error');
+            } catch (e) { Swal.fire('エラー', e.message, 'error'); } finally { setIsSaving(false); }
+        };
+
+        const handleSaveGroups = async () => {
+            const { value: pass } = await Swal.fire({ title: 'パスワードを入力', input: 'password', showCancelButton: true });
+            if (!pass) return;
+            setIsSaving(true);
+            try {
+                const res = await ClientAPI.saveGroupData({ groups: editGroups, password: pass });
+                if (res.status === 'success') { Swal.fire('完了', 'グループ情報を更新しました', 'success'); onRefresh(); }
+                else Swal.fire('エラー', res.message, 'error');
+            } catch (e) { Swal.fire('エラー', e.message, 'error'); } finally { setIsSaving(false); }
+        };
+
+        const downloadCSV = () => {
+            let csv = "\uFEFFID,日時,班,色,名前,場所,メモ,画像URL\n";
+            pins.forEach(p => {
+                const gName = groups.find(g => String(g.id) === p.group_id)?.name || p.group_id;
+                csv += `${p.id},${p.timestamp},${gName},${p.pin_color},"${p.author_name}","${p.shop_name}","${p.description}",${p.image_url}\n`;
+            });
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+            const link = document.createElement("a");
+            link.href = URL.createObjectURL(blob);
+            link.download = `まちたんけん_${new Date().toLocaleDateString()}.csv`;
+            link.click();
+        };
+
+        return (
+            <div className="modal fade show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+                <div className="modal-dialog modal-xl modal-dialog-centered">
+                    <div className="modal-content shadow-lg rounded-4 overflow-hidden">
+                        <div className="modal-header bg-dark text-white">
+                            <h5 className="modal-title">🔧 先生用ダッシュボード</h5>
+                            <button className="btn-close btn-close-white" onClick={onClose}></button>
+                        </div>
+                        <div className="modal-body p-0 d-flex bg-light" style={{ minHeight: '600px' }}>
+                            <div className="bg-white border-end" style={{ width: '250px' }}>
+                                <div className="list-group list-group-flush">
+                                    <button className={`list-group-item list-group-item-action p-3 ${tab === 'map' ? 'active' : ''}`} onClick={() => setTab('map')}>🗺️ 地図・データ</button>
+                                    <button className={`list-group-item list-group-item-action p-3 ${tab === 'group' ? 'active' : ''}`} onClick={() => setTab('group')}>👥 グループ管理</button>
+                                </div>
+                            </div>
+                            <div className="p-4 flex-grow-1 overflow-auto">
+                                {tab === 'map' && (
+                                    <div>
+                                        <h5 className="border-bottom pb-2 mb-4">地図の設定</h5>
+                                        <div className="mb-4">
+
+                                            <div className="input-group mb-3">
+                                                <span className="input-group-text">画像URL</span>
+                                                <input type="text" className="form-control" value={newMapUrl} onChange={e => setNewMapUrl(e.target.value)} />
+                                                <button className="btn btn-primary" onClick={handleUpdateMap} disabled={isSaving}>変更</button>
+                                            </div>
+                                            <small className="text-muted">※Googleドライブの共有リンクなどを貼り付けてください。</small>
+                                            <div className="mt-3 border p-2 bg-light text-center">
+                                                <small>プレビュー:</small><br />
+                                                <img src={resolveImageUrl(newMapUrl)} style={{ maxHeight: '150px' }} />
+                                            </div>
+                                        </div>
+
+                                        <h5 className="border-bottom pb-2 mb-4 mt-5">データ出力</h5>
+                                        <button className="btn btn-success" onClick={downloadCSV}>📥 CSVダウンロード ({pins.length}件)</button>
+                                    </div>
+                                )}
+                                {tab === 'group' && (
+                                    <div>
+                                        <div className="d-flex justify-content-between align-items-center mb-4 border-bottom pb-2">
+                                            <h5 className="mb-0">グループ（班）の管理</h5>
+                                            <button className="btn btn-primary btn-sm" onClick={() => setEditGroups([...editGroups, { id: Date.now().toString(), name: '新しい班' }])}>＋ 追加</button>
+                                        </div>
+                                        <div className="table-responsive bg-white border rounded">
+                                            <table className="table table-hover mb-0">
+                                                <thead className="table-light"><tr><th>ID</th><th>グループ名</th><th>操作</th></tr></thead>
+                                                <tbody>
+                                                    {editGroups.map((g, idx) => (
+                                                        <tr key={g.id}>
+                                                            <td className="text-muted small">{g.id}</td>
+                                                            <td>
+                                                                <input type="text" className="form-control form-control-sm" value={g.name} onChange={e => {
+                                                                    const newG = [...editGroups]; newG[idx].name = e.target.value; setEditGroups(newG);
+                                                                }} />
+                                                            </td>
+                                                            <td>
+                                                                <button className="btn btn-outline-danger btn-sm" onClick={() => setEditGroups(editGroups.filter(x => x.id !== g.id))}>削除</button>
+                                                            </td>
+                                                        </tr>
+                                                    ))}
+                                                </tbody>
+                                            </table>
+                                        </div>
+                                        <div className="mt-3 text-end">
+                                            <button className="btn btn-primary px-4" onClick={handleSaveGroups} disabled={isSaving}>保存する</button>
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    const CreatePinModal = ({ pos, colors, onClose, onSubmit }) => {
+        const [color, setColor] = useState(colors[0]);
+        const [author, setAuthor] = useState('');
+        const [shop, setShop] = useState('');
+        const [desc, setDesc] = useState('');
+        const [image, setImage] = useState(null);
+
+        const handleFile = async (e) => {
+            if (e.target.files[0]) {
+                const b64 = await compressImage(e.target.files[0]);
+                setImage(b64);
+            }
+        };
+
+        return (
+            <div className="modal fade show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.5)' }}>
+                <div className="modal-dialog modal-dialog-centered modal-lg">
+                    <div className="modal-content border-0 shadow-lg rounded-4">
+                        <div className="modal-header bg-primary text-white rounded-top-4">
+                            <h5 className="modal-title font-weight-bold">📌 ピンをさす</h5>
+                            <button type="button" className="btn-close btn-close-white" onClick={onClose}></button>
+                        </div>
+                        <div className="modal-body p-4 bg-light">
+                            <div className="mb-4">
+                                <label className="form-label font-weight-bold">１．ピンの<RubyText text="色" sub="いろ" /></label>
+                                <div className="d-flex flex-wrap gap-2">
+                                    {colors.map(c => (
+                                        <button key={c.id} className={`btn rounded-circle p-0 border-2 ${color.id === c.id ? 'border-dark shadow' : 'border-white'}`} style={{ width: '40px', height: '40px', backgroundColor: c.color }} onClick={() => setColor(c)} />
+                                    ))}
+                                    <span className="align-self-center ms-2 font-weight-bold">{color.label}</span>
+                                </div>
+                            </div>
+                            <div className="mb-3">
+                                <label className="form-label font-weight-bold">２．<RubyText text="書" sub="か" />いた<RubyText text="人" sub="ひと" /></label>
+                                <input type="text" className="form-control rounded-pill" placeholder="なまえ" value={author} onChange={e => setAuthor(e.target.value)} />
+                            </div>
+                            <div className="mb-3">
+                                <label className="form-label font-weight-bold">３．<RubyText text="場所" sub="ばしょ" />の<RubyText text="名前" sub="なまえ" /></label>
+                                <input type="text" className="form-control rounded-pill" placeholder="おみせのなまえ など" value={shop} onChange={e => setShop(e.target.value)} />
+                            </div>
+                            <div className="mb-3">
+                                <label className="form-label font-weight-bold">４．メモ (<RubyText text="見" sub="み" />つけたこと)</label>
+                                <textarea className="form-control rounded-4" rows="3" placeholder="ここに かいてね" value={desc} onChange={e => setDesc(e.target.value)}></textarea>
+                            </div>
+                            <div className="mb-3">
+                                <label className="btn btn-outline-primary w-100 rounded-pill border-2 border-dashed p-3">
+                                    📷 <RubyText text="写真" sub="しゃしん" />を<RubyText text="撮" sub="と" />る・<RubyText text="選" sub="えら" />ぶ
+                                    <input type="file" accept="image/*" className="d-none" onChange={handleFile} />
+                                </label>
+                                {image && <div className="mt-2 text-center position-relative"><img src={image} className="img-fluid rounded-3 shadow-sm" style={{ maxHeight: '200px' }} /><button className="btn btn-danger btn-sm rounded-circle position-absolute top-0 end-0 m-1" onClick={() => setImage(null)}>×</button></div>}
+                            </div>
+                        </div>
+                        <div className="modal-footer border-0 bg-light rounded-bottom-4 justify-content-center pb-4">
+                            <button className="btn btn-secondary rounded-pill px-4" onClick={onClose}>やめる</button>
+                            <button className="btn btn-google btn-lg px-5" onClick={() => { if (!shop || !author) return Swal.fire('おっと！', 'なまえと ばしょは かならず かいてね', 'warning'); onSubmit({ color, author, shop, desc, image }); }}>決定！</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        );
+    };
+
+    const ViewPinModal = ({ pin, onClose, isTeacher, onDelete, groupName }) => (
+        <div className="modal fade show d-block" style={{ backgroundColor: 'rgba(0,0,0,0.6)' }} onClick={onClose}>
+            <div className="modal-dialog modal-dialog-centered modal-xl" onClick={e => e.stopPropagation()}>
+                <div className="modal-content border-0 shadow-lg rounded-4 overflow-hidden" style={{ height: '80vh' }}>
+                    <div className="row h-100 g-0">
+                        <div className="col-md-6 bg-dark d-flex align-items-center justify-content-center position-relative">
+                            {pin.image_url ? <img src={resolveImageUrl(pin.image_url)} className="img-fluid" style={{ maxHeight: '100%', maxWidth: '100%' }} /> : <div className="text-white-50 text-center"><div className="display-1">📷</div><p><RubyText text="写真" sub="しゃしん" />はありません</p></div>}
+                            <button className="btn btn-dark bg-opacity-50 rounded-circle position-absolute top-0 start-0 m-3 text-white d-md-none" onClick={onClose}>✕</button>
+                        </div>
+                        <div className="col-md-6 bg-white p-4 p-md-5 d-flex flex-column overflow-auto">
+                            <div className="d-flex justify-content-between align-items-start mb-3">
+                                <span className="badge rounded-pill bg-light text-dark border px-3 py-2"><span style={{ color: pin.pin_color }}>●</span> {groupName || '先生'}</span>
+                                <button type="button" className="btn-close d-none d-md-block" onClick={onClose}></button>
+                            </div>
+                            <h2 className="display-6 font-weight-bold mb-4">{pin.shop_name}</h2>
+                            <div className="flex-grow-1 mb-4"><div className="card bg-light border-0 rounded-4 h-100"><div className="card-body"><h6 className="text-primary font-weight-bold">📝 メモ</h6><p className="card-text fs-5" style={{ whiteSpace: 'pre-wrap' }}>{pin.description || '(メモなし)'}</p></div></div></div>
+                            <div className="d-flex justify-content-between align-items-end mt-auto pt-3 border-top">
+                                <div><small className="text-muted"><RubyText text="発見" sub="はっけん" />した<RubyText text="人" sub="ひと" /></small><h4 className="mb-0">{pin.author_name}</h4><small className="text-muted text-small">{pin.timestamp}</small></div>
+                                {isTeacher && <button className="btn btn-outline-danger rounded-pill btn-sm" onClick={async () => { const { value: pass } = await Swal.fire({ title: '管理用パスワード', input: 'password', showCancelButton: true }); if (pass) onDelete(pin.id, pass); }}>🗑️ <RubyText text="削除" sub="さくじょ" /></button>}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+</script>
