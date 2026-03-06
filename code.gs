@@ -1,346 +1,275 @@
 /**
- * まちたんけんマップ - Server Side Script (GIGA Standard v2)
- * v3.1 Added Teacher Dashboard & Dynamic Group Management
+ * みっけ！
  */
 
-// ==========================================
-//  設定・定数定義
-// ==========================================
 const CONFIG = {
-  SHEET_NAME: 'pin_data',
-  GROUP_SHEET_NAME: 'group_config',
-  IMAGE_FOLDER_NAME: 'まちたんけん_画像データ',
-  ADMIN_PASSWORD: 'sensei', // 必要に応じて変更してください
-  DEFAULT_MAP_URL: "https://blogger.googleusercontent.com/img/b/R29vZ2xl/AVvXsEj7b2aHhD8U0x0W3v2qVzQJjNfLwX6yZ8lK1oE4rT5yU9iO0pA3sD4fG7hJ2kL5nB8mV0cW3eR6tY9uI1oP4aS7dF0gH2jK5lZ8xC3vB6n/s1600/map_town_illustration.png",
-  LOCK_TIMEOUT: 10000, // 排他制御の待機時間(ms)
-  GEMINI_MODEL: 'gemini-1.5-flash'
+  APP_NAME: 'みっけ！', 
+  IMAGE_FOLDER_NAME: 'みっけ！_画像データ',
+  LOCK_TIMEOUT: 15000
 };
 
-// スプレッドシートの列定義
-const COLUMNS = {
-  ID: 0,
-  TIMESTAMP: 1,
-  PIN_COLOR: 2,
-  AUTHOR_NAME: 3,
-  MAP_X: 4,
-  MAP_Y: 5,
-  SHOP_NAME: 6,
-  DESCRIPTION: 7,
-  IMAGE_URL: 8,
-  GROUP_ID: 9,
-  DELETED_AT: 10
+const TABLES = {
+  USERS: { name: 'Users_名簿', cols: ['email', 'name', 'group_id', 'role', 'created_at'] },
+  UNITS: { name: 'Units_単元', cols: ['unit_id', 'name', 'maps_json', 'chat_enabled', 'stamp_enabled', 'custom_stamps', 'is_active', 'created_at'] },
+  PINS:  { name: 'Pins_ピン', cols: ['pin_id', 'unit_id', 'map_id', 'email', 'x', 'y', 'color', 'title', 'memo', 'image_url', 'created_at'] },
+  CHATS: { name: 'Chats_チャット', cols: ['chat_id', 'unit_id', 'email', 'message', 'target_type', 'target_id', 'created_at'] },
+  REACTIONS: { name: 'Reactions_反応', cols: ['reaction_id', 'unit_id', 'email', 'target_type', 'target_id', 'emoji', 'created_at'] }
 };
 
-// ==========================================
-//  Webアプリのエントリーポイント
-// ==========================================
 function doGet(e) {
-  setupEnvironment();
-  const template = HtmlService.createTemplateFromFile('index');
-  return template.evaluate()
-    .setTitle('みんなのまちたんけんマップ')
+  return HtmlService.createTemplateFromFile('index')
+    .evaluate().setTitle('みっけ！')
     .addMetaTag('viewport', 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
-    .setFaviconUrl('https://drive.google.com/uc?id=1ffTLalkZVzwAIQtCDFN5OzR3CePkzDjh&.png');
+    .setFaviconUrl('https://drive.google.com/uc?id=1yOrXP3u-S3B1CzW7iCh1DhPloH1gsPgt&.png');
 }
 
-function include(filename) {
-  return HtmlService.createHtmlOutputFromFile(filename).getContent();
-}
-
-// ==========================================
-//  API: データ取得 (Read)
-// ==========================================
-function getPinData() {
-  const result = { status: 'success', data: [], map_url: '', groups: [] };
-  
-  try {
-    const sheet = getSheet();
-    const lastRow = sheet.getLastRow();
-    
-    // プロパティから現在の地図URLを取得
-    const props = PropertiesService.getScriptProperties();
-    result.map_url = props.getProperty('MAP_URL') || CONFIG.DEFAULT_MAP_URL;
-
-    // グループ情報の取得
-    result.groups = _getGroups();
-
-    if (lastRow > 1) {
-      const data = sheet.getRange(2, 1, lastRow - 1, sheet.getLastColumn()).getValues();
-      result.data = data
-        .filter(row => !row[COLUMNS.DELETED_AT])
-        .map(row => ({
-          id:          String(row[COLUMNS.ID]),
-          timestamp:   formatDate(row[COLUMNS.TIMESTAMP]),
-          pin_color:   String(row[COLUMNS.PIN_COLOR]),
-          author_name: String(row[COLUMNS.AUTHOR_NAME]),
-          map_x:       Number(row[COLUMNS.MAP_X]),
-          map_y:       Number(row[COLUMNS.MAP_Y]),
-          shop_name:   String(row[COLUMNS.SHOP_NAME]),
-          description: String(row[COLUMNS.DESCRIPTION]),
-          image_url:   String(row[COLUMNS.IMAGE_URL]),
-          group_id:    String(row[COLUMNS.GROUP_ID] || 'all')
-        }));
-    }
-  } catch (error) {
-    console.error('getPinData Error:', error);
-    result.status = 'error';
-    result.message = error.toString();
-  }
-
-  return JSON.stringify(result);
-}
-
-// ==========================================
-//  API: データ保存・更新・削除 (Write)
-// ==========================================
-function savePinData(payloadJson) {
-  const lock = LockService.getScriptLock();
-  
-  if (lock.tryLock(CONFIG.LOCK_TIMEOUT)) {
-    const result = { status: 'success', message: '' };
-    
-    try {
-      const params = JSON.parse(payloadJson);
-      const action = params.action;
-      const sheet = getSheet();
-
-      if (action === 'save_pin') {
-        _handleSavePin(sheet, params, result);
-      } else if (action === 'delete_pin') {
-        _handleDeletePin(sheet, params, result);
-      } else {
-        throw new Error('不明なアクションです');
-      }
-
-    } catch (error) {
-      console.error('savePinData Error:', error);
-      result.status = 'error';
-      result.message = error.toString();
-    } finally {
-      lock.releaseLock();
-    }
-    return JSON.stringify(result);
-  } else {
-    return JSON.stringify({
-      status: 'error',
-      message: '他の人が使っています。少し待ってからもう一度押してください。'
-    });
-  }
-}
-
-// ==========================================
-//  API: 設定変更 (Map URL & Groups)
-// ==========================================
-function saveMapSetting(payloadJson) {
-  const result = { status: 'success', message: '' };
-  try {
-    const params = JSON.parse(payloadJson);
-    if (params.password !== CONFIG.ADMIN_PASSWORD) {
-      throw new Error('パスワードがちがいます');
-    }
-    
-    // 地図URLの保存
-    if (params.map_url !== undefined) {
-      PropertiesService.getScriptProperties().setProperty('MAP_URL', params.map_url);
-    }
-
-    result.message = '設定を変更しました';
-  } catch (error) {
-    result.status = 'error';
-    result.message = error.toString();
-  }
-  return JSON.stringify(result);
-}
-
-function saveGroupData(payloadJson) {
-  const lock = LockService.getScriptLock();
-  if (lock.tryLock(CONFIG.LOCK_TIMEOUT)) {
-    const result = { status: 'success', message: '' };
-    try {
-      const params = JSON.parse(payloadJson);
-      if (params.password !== CONFIG.ADMIN_PASSWORD) {
-        throw new Error('パスワードがちがいます');
-      }
-
-      // グループシートの更新 (完全洗い替え)
-      const ss = SpreadsheetApp.getActiveSpreadsheet();
-      let sheet = ss.getSheetByName(CONFIG.GROUP_SHEET_NAME);
-      if (!sheet) sheet = ss.insertSheet(CONFIG.GROUP_SHEET_NAME);
-      
-      sheet.clear();
-      sheet.appendRow(['id', 'name']); // Header
-      
-      const rows = params.groups.map(g => [g.id, g.name]);
-      if (rows.length > 0) {
-        sheet.getRange(2, 1, rows.length, 2).setValues(rows);
-      }
-      
-      result.message = 'グループ情報を更新しました';
-    } catch (error) {
-      result.status = 'error';
-      result.message = error.toString();
-    } finally {
-      lock.releaseLock();
-    }
-    return JSON.stringify(result);
-  } else {
-    return JSON.stringify({ status: 'error', message: '混み合っています' });
-  }
-}
-
-// ==========================================
-//  内部ロジック (Private Helpers)
-// ==========================================
-
-function setupEnvironment() {
+function getDB() {
   const props = PropertiesService.getScriptProperties();
-  const isSetup = props.getProperty('IS_SETUP');
-
-  if (!isSetup) {
-    getSheet(); // ピンデータシート作成
-    _getGroups(); // グループシート作成（なければデフォルト作成）
-    
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
-    const defaultSheet = ss.getSheetByName('シート1');
-    if (defaultSheet && ss.getSheets().length > 1) {
-      ss.deleteSheet(defaultSheet);
-    }
-    props.setProperty('IS_SETUP', 'true');
+  let ssId = props.getProperty('DB_ID'); 
+  let ss = null;
+  if (ssId) { try { ss = SpreadsheetApp.openById(ssId); } catch (e) { ss = null; } }
+  if (!ss) {
+    ss = SpreadsheetApp.create(CONFIG.APP_NAME);
+    props.setProperty('DB_ID', ss.getId());
+    ss.getSheets()[0].setName('Dummy');
   }
+  Object.values(TABLES).forEach(table => {
+    let sheet = ss.getSheetByName(table.name);
+    if (!sheet) {
+      sheet = ss.insertSheet(table.name);
+      sheet.appendRow(table.cols);
+      sheet.setFrozenRows(1);
+      sheet.getRange(1, 1, 1, table.cols.length).setBackground('#41B3A3').setFontColor('white').setFontWeight('bold');
+    }
+  });
+  const dummy = ss.getSheetByName('Dummy');
+  if (dummy) ss.deleteSheet(dummy);
+  return ss;
 }
 
-function _getGroups() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(CONFIG.GROUP_SHEET_NAME);
-  
-  if (!sheet) {
-    // デフォルトグループの作成
-    sheet = ss.insertSheet(CONFIG.GROUP_SHEET_NAME);
-    sheet.appendRow(['id', 'name']);
-    const defaultGroups = [];
-    for(let i=1; i<=10; i++) {
-        defaultGroups.push([String(i), `${i}ぱん`]);
-    }
-    sheet.getRange(2, 1, defaultGroups.length, 2).setValues(defaultGroups);
-    return defaultGroups.map(r => ({ id: r[0], name: r[1] }));
-  }
-  
+function getTableData(sheetName) {
+  const sheet = getDB().getSheetByName(sheetName);
   const lastRow = sheet.getLastRow();
-  if (lastRow <= 1) return [];
-  
-  const data = sheet.getRange(2, 1, lastRow - 1, 2).getValues();
-  return data.map(row => ({ id: String(row[0]), name: String(row[1]) }));
+  if (lastRow < 2) return [];
+  const headers = TABLES[Object.keys(TABLES).find(k => TABLES[k].name === sheetName)].cols;
+  const values = sheet.getRange(2, 1, lastRow - 1, headers.length).getValues();
+  return values.map(row => {
+    let obj = {};
+    headers.forEach((h, i) => obj[h] = row[i]);
+    return obj;
+  });
 }
 
-function _handleSavePin(sheet, params, result) {
-  let imageUrl = '';
-  if (params.image_data) {
-    imageUrl = saveImageToDrive(params.image_data, params.id);
-  }
-
-  const now = new Date();
-  const newRow = new Array(Object.keys(COLUMNS).length).fill('');
-  
-  newRow[COLUMNS.ID] = params.id;
-  newRow[COLUMNS.TIMESTAMP] = now;
-  newRow[COLUMNS.PIN_COLOR] = params.pin_color;
-  newRow[COLUMNS.AUTHOR_NAME] = params.author_name;
-  newRow[COLUMNS.MAP_X] = params.map_x;
-  newRow[COLUMNS.MAP_Y] = params.map_y;
-  newRow[COLUMNS.SHOP_NAME] = params.shop_name;
-  newRow[COLUMNS.DESCRIPTION] = params.description;
-  newRow[COLUMNS.IMAGE_URL] = imageUrl;
-  newRow[COLUMNS.GROUP_ID] = params.group_id;
-  newRow[COLUMNS.DELETED_AT] = '';
-
-  sheet.appendRow(newRow);
-  result.message = 'ピンをさしました！';
+function formatUnit(unit) {
+  if (!unit) return null;
+  try { unit.maps = JSON.parse(unit.maps_json || '[]'); } catch(e) { unit.maps = []; }
+  try { unit.custom_stamps = JSON.parse(unit.custom_stamps || '["📍","🐛","🌸","🚗","⚠️","🏠","❓","💡"]'); } catch(e) { unit.custom_stamps = ["📍","🐛","🌸","🚗","⚠️","🏠","❓","💡"]; }
+  return unit;
 }
 
-function _handleDeletePin(sheet, params, result) {
-  if (params.password !== CONFIG.ADMIN_PASSWORD) {
-    throw new Error('パスワードがちがいます');
-  }
+function getInitData() {
+  try {
+    const email = Session.getActiveUser().getEmail();
+    if (!email) return JSON.stringify({ status: 'error', message: 'Googleアカウントにログインしていません。' });
+    getDB();
+    
+    let users = getTableData(TABLES.USERS.name);
+    let myUser = users.find(u => u.email === email);
+
+    if (users.length === 0) {
+      const newTeacher = { email: email, name: '先生', group_id: 'teacher', role: 'teacher', created_at: new Date().toLocaleString() };
+      getDB().getSheetByName(TABLES.USERS.name).appendRow([newTeacher.email, newTeacher.name, newTeacher.group_id, newTeacher.role, newTeacher.created_at]);
+      myUser = newTeacher;
+      users = [newTeacher];
+    }
+
+    if (!myUser) return JSON.stringify({ status: 'unregistered', email: email });
+
+    const units = getTableData(TABLES.UNITS.name);
+    const activeUnit = formatUnit(units.find(u => u.is_active === true) || units[0] || null);
+
+    let pins = [];
+    let chats = [];
+    let reactions = [];
+    if (activeUnit) {
+      pins = getTableData(TABLES.PINS.name).filter(p => p.unit_id === activeUnit.unit_id);
+      chats = getTableData(TABLES.CHATS.name).filter(c => c.unit_id === activeUnit.unit_id);
+      reactions = getTableData(TABLES.REACTIONS.name).filter(r => r.unit_id === activeUnit.unit_id);
+    }
+
+    const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+    const hasApiKey = !!apiKey;
+
+    return JSON.stringify({ status: 'success', user: myUser, users, activeUnit, units, pins, chats, reactions, hasApiKey });
+  } catch (e) { return JSON.stringify({ status: 'error', message: e.toString() }); }
+}
+
+function syncData(unitId) {
+  try {
+    const units = getTableData(TABLES.UNITS.name);
+    const activeUnit = formatUnit(units.find(u => u.unit_id === unitId));
+    const pins = getTableData(TABLES.PINS.name).filter(p => p.unit_id === unitId);
+    const chats = getTableData(TABLES.CHATS.name).filter(c => c.unit_id === unitId);
+    const reactions = getTableData(TABLES.REACTIONS.name).filter(r => r.unit_id === unitId);
+    const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+    return JSON.stringify({ status: 'success', pins, chats, reactions, activeUnit, hasApiKey: !!apiKey });
+  } catch (e) { return JSON.stringify({ status: 'error', message: e.toString() }); }
+}
+
+function getDriveImages() {
+  try {
+    const files = DriveApp.searchFiles("mimeType contains 'image/' and trashed = false");
+    const images = [];
+    let count = 0;
+    while (files.hasNext() && count < 60) {
+      const file = files.next();
+      try { file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW); } catch(e) {}
+      images.push({ id: file.getId(), name: file.getName(), thumbnail: `https://drive.google.com/thumbnail?sz=w400&id=${file.getId()}` });
+      count++;
+    }
+    return JSON.stringify({ status: 'success', images });
+  } catch (e) { return JSON.stringify({ status: 'error', message: e.toString() }); }
+}
+
+function generateAIPortfolio(payloadJson) {
+  try {
+    const p = JSON.parse(payloadJson);
+    const apiKey = PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY');
+    if (!apiKey) return JSON.stringify({ status: 'error', message: 'AI分析を行うには、GASのスクリプトプロパティに「GEMINI_API_KEY」を設定してください。' });
+
+    const pins = getTableData(TABLES.PINS.name).filter(pin => pin.unit_id === p.unit_id && pin.email === p.email);
+    const chats = getTableData(TABLES.CHATS.name).filter(chat => chat.unit_id === p.unit_id && chat.email === p.email);
+    const reactions = getTableData(TABLES.REACTIONS.name).filter(r => r.unit_id === p.unit_id && r.email === p.email);
+    const user = getTableData(TABLES.USERS.name).find(u => u.email === p.email);
+
+    if (pins.length === 0 && chats.length === 0 && reactions.length === 0) {
+      return JSON.stringify({ status: 'success', portfolio: 'まだ活動の記録（ピンやチャット）がありません。' });
+    }
+
+    let prompt = `あなたは小学校の先生です。児童「${user ? user.name : 'この児童'}」の「地図学習」での活動記録を分析し、温かいフィードバックを作成してください。\n\n`;
+    prompt += `【ピンを刺した記録】\n`;
+    pins.forEach(pin => prompt += `- 発見対象[${pin.title}]: メモ[${pin.memo || 'なし'}] アイコン[${pin.color}]\n`);
+    prompt += `\n【発言記録】\n`;
+    chats.forEach(chat => prompt += `- ${chat.message}\n`);
+    prompt += `\n【友達へのリアクション回数】: ${reactions.length}回\n`;
+    prompt += `\n以下の3項目で出力してください。\n1. 🔍 興味関心の傾向（どんなものに目を向けているか）\n2. ✨ 素晴らしい点（表現や友達への関わりの良さ）\n3. 💌 先生からのメッセージ（小学生に向けて優しい言葉で）`;
+
+    const payload = {
+      contents: [{ parts: [{ text: prompt }] }],
+      systemInstruction: { parts: [{ text: "あなたは優しく、児童の良いところを見つけるのが得意な先生です。マークダウンを使用せず、プレーンテキストで見やすく出力してください。"}] }
+    };
+
+    const options = { method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true };
+    const response = UrlFetchApp.fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, options);
+    const resData = JSON.parse(response.getContentText());
+    if (resData.error) throw new Error(resData.error.message);
+    
+    return JSON.stringify({ status: 'success', portfolio: resData.candidates[0].content.parts[0].text });
+  } catch (e) { return JSON.stringify({ status: 'error', message: e.toString() }); }
+}
+
+function executeAction(payloadJson) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(CONFIG.LOCK_TIMEOUT)) return JSON.stringify({ status: 'error', message: 'サーバー混雑中' });
+
+  try {
+    const p = JSON.parse(payloadJson);
+    const db = getDB();
+    const now = new Date().toLocaleString('ja-JP');
+
+    if (p.action === 'save_pin') {
+      db.getSheetByName(TABLES.PINS.name).appendRow([p.pin_id, p.unit_id, p.map_id, p.email, p.x, p.y, p.color, p.title, p.memo, p.image_url || '', now]);
+    } 
+    else if (p.action === 'save_chat') {
+      db.getSheetByName(TABLES.CHATS.name).appendRow([p.chat_id, p.unit_id, p.email, p.message, p.target_type || 'general', p.target_id || '', now]);
+    }
+    else if (p.action === 'toggle_reaction') {
+      const sheet = db.getSheetByName(TABLES.REACTIONS.name);
+      const data = sheet.getDataRange().getValues();
+      let foundRowIndex = -1;
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][2] === p.email && data[i][3] === p.target_type && data[i][4] === p.target_id && data[i][5] === p.emoji) {
+          foundRowIndex = i + 1; break;
+        }
+      }
+      if (foundRowIndex > -1) sheet.deleteRow(foundRowIndex);
+      else sheet.appendRow([`r_${Date.now()}`, p.unit_id, p.email, p.target_type, p.target_id, p.emoji, now]);
+    }
+    else if (p.action === 'delete_pin') { _deleteRowByColId(db.getSheetByName(TABLES.PINS.name), 0, p.pin_id); }
+    else if (p.action === 'delete_chat') { _deleteRowByColId(db.getSheetByName(TABLES.CHATS.name), 0, p.chat_id); }
+    else if (p.action === 'save_unit') {
+      const unitSheet = db.getSheetByName(TABLES.UNITS.name);
+      const data = unitSheet.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) { 
+        if (data[i][6] === true) unitSheet.getRange(i + 1, 7).setValue(false); 
+      }
+      const initMap = [{ id: 'm_' + Date.now(), name: p.map_name || '基本マップ', url: p.map_url }];
+      const initStamps = JSON.stringify(['📍', '🐛', '🌸', '🚗', '⚠️', '🏠', '❓', '💡']);
+      unitSheet.appendRow([p.unit_id, p.name, JSON.stringify(initMap), true, true, initStamps, true, now]); 
+    }
+    else if (p.action === 'add_map') {
+      const unitSheet = db.getSheetByName(TABLES.UNITS.name);
+      const data = unitSheet.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][0] === p.unit_id) {
+          let maps = JSON.parse(data[i][2] || '[]');
+          maps.push({ id: p.map_id, name: p.name, url: p.map_url });
+          unitSheet.getRange(i + 1, 3).setValue(JSON.stringify(maps));
+          break;
+        }
+      }
+      if (p.copy_from_map_id) {
+        const pinSheet = db.getSheetByName(TABLES.PINS.name);
+        const pinData = pinSheet.getDataRange().getValues();
+        const newPins = [];
+        for (let i = 1; i < pinData.length; i++) {
+          if (pinData[i][1] === p.unit_id && pinData[i][2] === p.copy_from_map_id) {
+            newPins.push(['p_' + Date.now() + '_' + i, p.unit_id, p.map_id, pinData[i][3], pinData[i][4], pinData[i][5], pinData[i][6], pinData[i][7], pinData[i][8], pinData[i][9], now]);
+          }
+        }
+        if (newPins.length > 0) pinSheet.getRange(pinSheet.getLastRow() + 1, 1, newPins.length, newPins[0].length).setValues(newPins);
+      }
+    }
+    else if (p.action === 'toggle_chat') {
+      const unitSheet = db.getSheetByName(TABLES.UNITS.name);
+      const data = unitSheet.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) { if (data[i][0] === p.unit_id) { unitSheet.getRange(i + 1, 4).setValue(p.chat_enabled); break; } }
+    }
+    else if (p.action === 'toggle_stamp') {
+      const unitSheet = db.getSheetByName(TABLES.UNITS.name);
+      const data = unitSheet.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) { if (data[i][0] === p.unit_id) { unitSheet.getRange(i + 1, 5).setValue(p.stamp_enabled); break; } }
+    }
+    else if (p.action === 'update_custom_stamps') {
+      const unitSheet = db.getSheetByName(TABLES.UNITS.name);
+      const data = unitSheet.getDataRange().getValues();
+      for (let i = 1; i < data.length; i++) { 
+        if (data[i][0] === p.unit_id) { unitSheet.getRange(i + 1, 6).setValue(JSON.stringify(p.custom_stamps)); break; } 
+      }
+    }
+    else if (p.action === 'save_users') {
+      const userSheet = db.getSheetByName(TABLES.USERS.name);
+      p.users.forEach(u => {
+        const exists = getTableData(TABLES.USERS.name).find(ex => ex.email === u.email);
+        if (!exists) userSheet.appendRow([u.email.trim(), u.name.trim(), u.group_id.trim(), 'student', now]);
+      });
+    }
+    else if (p.action === 'save_api_key') {
+      PropertiesService.getScriptProperties().setProperty('GEMINI_API_KEY', p.api_key);
+    }
+
+    return JSON.stringify({ status: 'success' });
+  } catch (e) { return JSON.stringify({ status: 'error', message: e.toString() }); } 
+  finally { lock.releaseLock(); }
+}
+
+function _deleteRowByColId(sheet, colIndex, targetId) {
   const data = sheet.getDataRange().getValues();
-  let targetRowIndex = -1;
   for (let i = data.length - 1; i >= 1; i--) {
-    if (String(data[i][COLUMNS.ID]) === String(params.target_id)) {
-      targetRowIndex = i + 1;
-      break;
+    if (String(data[i][colIndex]) === String(targetId)) {
+      sheet.deleteRow(i + 1);
+      return;
     }
   }
-  if (targetRowIndex > 0) {
-    const now = new Date();
-    sheet.getRange(targetRowIndex, COLUMNS.DELETED_AT + 1).setValue(now);
-    result.message = '削除しました';
-  } else {
-    throw new Error('指定されたIDが見つかりませんでした');
-  }
 }
-
-function getSheet() {
-  const ss = SpreadsheetApp.getActiveSpreadsheet();
-  let sheet = ss.getSheetByName(CONFIG.SHEET_NAME);
-  if (!sheet) {
-    sheet = ss.insertSheet(CONFIG.SHEET_NAME);
-    const headers = Object.keys(COLUMNS).sort((a, b) => COLUMNS[a] - COLUMNS[b]);
-    sheet.appendRow(headers);
-    sheet.setFrozenRows(1);
-    sheet.getRange(1, 1, 1, headers.length).setBackground('#E8F0FE').setFontWeight('bold');
-  }
-  return sheet;
-}
-
-function saveImageToDrive(base64Data, fileName) {
-  try {
-    const folderId = getOrCreateImageFolderId();
-    const folder = DriveApp.getFolderById(folderId);
-    const match = base64Data.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,(.+)$/);
-    if (!match) return '';
-    const contentType = match[1];
-    const decodedData = Utilities.base64Decode(match[2]);
-    const blob = Utilities.newBlob(decodedData, contentType, fileName + '.jpg');
-    const file = folder.createFile(blob);
-    file.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    return `https://drive.google.com/thumbnail?sz=w1000&id=${file.getId()}`;
-  } catch (e) {
-    console.error('Image Save Error:', e);
-    return '';
-  }
-}
-
-function getOrCreateImageFolderId() {
-  const props = PropertiesService.getScriptProperties();
-  const savedId = props.getProperty('IMAGE_FOLDER_ID');
-  if (savedId) {
-    try {
-      DriveApp.getFolderById(savedId);
-      return savedId;
-    } catch (e) {}
-  }
-  const ssId = SpreadsheetApp.getActiveSpreadsheet().getId();
-  const ssFile = DriveApp.getFileById(ssId);
-  const parentParents = ssFile.getParents();
-  const parentFolder = parentParents.hasNext() ? parentParents.next() : DriveApp.getRootFolder();
-  const folders = parentFolder.getFoldersByName(CONFIG.IMAGE_FOLDER_NAME);
-  let targetFolder;
-  if (folders.hasNext()) {
-    targetFolder = folders.next();
-  } else {
-    targetFolder = parentFolder.createFolder(CONFIG.IMAGE_FOLDER_NAME);
-  }
-  const newId = targetFolder.getId();
-  props.setProperty('IMAGE_FOLDER_ID', newId);
-  return newId;
-}
-
-function formatDate(date) {
-  if (!date) return '';
-  try {
-    return Utilities.formatDate(new Date(date), 'Asia/Tokyo', 'yyyy/MM/dd HH:mm');
-  } catch (e) {
-    return String(date);
-  }
-}
-
