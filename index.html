@@ -1,42 +1,1272 @@
 <!DOCTYPE html>
 <html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>みっけ！</title>
+    
+    <!-- React & Babel -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;600;700;800&display=swap" rel="stylesheet">
 
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
-  <title>みんなのまちたんけんマップ</title>
+    <!-- 🎨 エンタープライズ級デザインシステム -->
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              brand: { 50: '#f0f9ff', 100: '#e0f2fe', 500: '#0ea5e9', 600: '#0284c7', 900: '#0c4a6e' },
+              accent: { 50: '#fff1f2', 100: '#ffe4e6', 500: '#f43f5e', 600: '#e11d48', 900: '#881337' },
+              surface: '#f8fafc',
+            },
+            fontFamily: { 'rounded': ['"M PLUS Rounded 1c"', 'sans-serif'] },
+            boxShadow: {
+              'soft': '0 4px 20px -2px rgba(0, 0, 0, 0.05)',
+              'float': '0 10px 40px -10px rgba(0,0,0,0.12)',
+              'inner-soft': 'inset 0 2px 4px 0 rgba(0, 0, 0, 0.04)',
+            },
+            zIndex: { 'overlay': 8000, 'modal': 9000, 'toast': 9999 }
+          }
+        }
+      }
+    </script>
+    <style>
+      html, body { 
+        height: 100%; overflow: hidden; 
+        font-family: 'M PLUS Rounded 1c', sans-serif; 
+        background-color: #f8fafc; color: #334155; 
+        touch-action: manipulation; overscroll-behavior: none; 
+        line-height: 1.6; letter-spacing: 0.02em;
+      }
+      .hide-scrollbar::-webkit-scrollbar { display: none; }
+      .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+      .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+      .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 10px; }
+      .custom-scrollbar::-webkit-scrollbar-thumb:hover { background-color: #94a3b8; }
+      
+      @keyframes popIn { from { opacity: 0; transform: scale(0.96) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+      .animate-pop-in { animation: popIn 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+      
+      @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+      .animate-slide-in-right { animation: slideInRight 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+      
+      .glass-panel { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.6); }
+      .smooth-map-container { will-change: transform; transform-origin: center; }
+      
+      @keyframes bouncePin { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-20px); } }
+      .animate-bounce-pin { animation: bouncePin 1s infinite ease-in-out; }
+      @keyframes shadowPulse { 0%, 100% { transform: scale(1); opacity: 0.4; } 50% { transform: scale(0.6); opacity: 0.15; } }
+      .animate-shadow-pulse { animation: shadowPulse 1s infinite ease-in-out; }
 
-  <!-- React 18 & Babel -->
-  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+      @media print {
+        body { background: white !important; }
+        .no-print { display: none !important; }
+        .print-full { width: 100% !important; border: none !important; box-shadow: none !important; padding: 0 !important; margin: 0 !important; overflow: visible !important; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="root" class="h-full w-full"></div>
 
-  <!-- Bootstrap 5 CSS -->
-  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-  <!-- Bootstrap Icons -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    <script type="text/babel">
+      const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
 
-  <!-- SweetAlert2 -->
-  <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
+      // ==========================================
+      // System & Utilities
+      // ==========================================
+      const runGas = (funcName, ...args) => new Promise((resolve, reject) => {
+        if (typeof google === 'undefined') {
+          setTimeout(() => resolve(JSON.stringify({ status: 'success', user: {email:'dev@test.com', name:'探検太郎', group_id:'1はん', role:'student'}, users:[{email:'dev@test.com', name:'探検太郎', group_id:'1はん'}], activeUnit:{unit_id:'u1', name:'町探検', maps:[{id:'m1', name:'基本マップ', url:''}], chat_enabled: true, stamp_enabled: true, custom_stamps: ['📍','🐛','🌸','🚗','⚠️','🏠','❓','💡']}, pins:[], chats:[], reactions:[], hasApiKey: true })), 500);
+          return;
+        }
+        google.script.run.withSuccessHandler(res => resolve(JSON.parse(res))).withFailureHandler(reject)[funcName](...args);
+      });
 
-  <!-- Custom CSS -->
-  <?!= include('css'); ?>
-</head>
+      const PIN_COLORS = ['#f43f5e', '#0ea5e9', '#eab308', '#22c55e', '#a855f7'];
+      const REACTION_EMOJIS = ['👍'];
 
-<body>
-  <div id="root"></div>
+      const isPointInPolygon = (point, vs) => {
+        let x = point.x, y = point.y, inside = false;
+        for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+          let xi = vs[i].x, yi = vs[i].y, xj = vs[j].x, yj = vs[j].y;
+          let intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+          if (intersect) inside = !inside;
+        }
+        return inside;
+      };
 
-  <!-- Strictly Requested Footer -->
-  <footer class="text-center text-muted py-3 mt-4 border-top">
-    <small>© 2026 みんなのまちたんけんマップ <a href="https://note.com/cute_borage86" target="_blank"
-        class="text-decoration-none text-muted">GIGA山</a></small>
-  </footer>
+      const compressImage = async (file) => {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = e => {
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              let w = img.width, h = img.height;
+              const MAX = 600;
+              if (w > h) { if (w > MAX) { h *= MAX / w; w = MAX; } } else { if (h > MAX) { w *= MAX / h; h = MAX; } }
+              canvas.width = w; canvas.height = h;
+              canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+              resolve(canvas.toDataURL('image/jpeg', 0.7)); 
+            };
+            img.onerror = reject; img.src = e.target.result;
+          };
+          reader.onerror = reject; reader.readAsDataURL(file);
+        });
+      };
 
-  <!-- Bootstrap JS Bundle -->
-  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+      const AppContext = createContext();
 
-  <!-- Application Logic -->
-  <?!= include('js'); ?>
-</body>
+      // ==========================================
+      // UI Components (Enterprise Grade)
+      // ==========================================
+      const RubyText = ({ text, kana }) => (
+        <ruby style={{ rubyPosition: 'over' }}>
+          {text}<rt className="text-[0.65em] text-slate-500 opacity-80 font-normal select-none tracking-normal">{kana}</rt>
+        </ruby>
+      );
 
+      const LoadingOverlay = () => (
+        <div className="fixed inset-0 bg-white/90 z-toast flex items-center justify-center backdrop-blur-sm no-print">
+          <div className="text-center flex flex-col items-center">
+            <div className="relative mb-6 w-16 h-16">
+              <div className="text-6xl text-brand-500 animate-bounce-pin absolute bottom-2 left-1/2 -translate-x-1/2 z-10 drop-shadow-md">📍</div>
+              <div className="w-10 h-3 bg-slate-300 rounded-[50%] animate-shadow-pulse absolute -bottom-1 left-1/2 -translate-x-1/2"></div>
+            </div>
+            <p className="text-xl font-extrabold text-brand-600 animate-pulse tracking-wider">
+              <span><RubyText text="準備" kana="じゅんび" />しています...</span>
+            </p>
+          </div>
+        </div>
+      );
+
+      const Toast = ({ msg, type = 'success', onHide }) => {
+        useEffect(() => { const t = setTimeout(onHide, 3000); return () => clearTimeout(t); }, [msg]);
+        if(!msg) return null;
+        return (
+          <div className="fixed bottom-24 sm:bottom-10 left-1/2 -translate-x-1/2 z-toast animate-pop-in bg-slate-800 text-white px-6 py-3.5 rounded-full shadow-float font-bold flex items-center gap-3 no-print max-w-[90vw]">
+            <span className="text-xl">{type === 'error' ? '⚠️' : '✨'}</span>
+            <span className="text-sm whitespace-nowrap">{msg}</span>
+          </div>
+        );
+      };
+
+      // 高品質なSVGアイコンセット
+      const SvgIcon = {
+        Close: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-5 h-5 stroke-current"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>,
+        Image: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-6 h-6"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>,
+        Trash: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>,
+        Send: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      };
+
+      // ==========================================
+      // Feature Components
+      // ==========================================
+      const PinListModal = ({ pins, onClose, onSelectPin }) => {
+        const { state } = useContext(AppContext);
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 z-[9500] flex items-center justify-center p-4 backdrop-blur-sm animate-pop-in no-print" onClick={onClose} onPointerDown={e=>e.stopPropagation()} onPointerUp={e=>e.stopPropagation()}>
+            <div className="bg-white w-full max-w-4xl rounded-[24px] shadow-float overflow-hidden flex flex-col relative max-h-[85vh]" onClick={e => e.stopPropagation()}>
+              <div className="bg-brand-500 px-6 py-4 text-white font-bold flex justify-between items-center shrink-0">
+                <span className="flex items-center gap-3 text-lg">
+                  <span className="bg-white/20 p-2 rounded-xl">🔍</span>
+                  <span>かこんだ<RubyText text="範囲" kana="はんい" />のピン<RubyText text="一覧" kana="いちらん" /> <span className="opacity-80 text-sm ml-1">({pins.length}件)</span></span>
+                </span>
+                <button onClick={onClose} className="text-white/70 hover:text-white hover:bg-white/20 p-2 rounded-full transition"><SvgIcon.Close /></button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-surface custom-scrollbar">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {pins.map(pin => {
+                    const authorName = state.users.find(u => u.email === pin.email)?.name || '不明';
+                    return (
+                      <div key={pin.pin_id} onClick={() => onSelectPin(pin)} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 cursor-pointer hover:shadow-md hover:border-brand-300 hover:-translate-y-1 transition-all flex flex-col gap-3 group">
+                        <div className="flex gap-3 items-start">
+                          {pin.image_url ? (
+                            <img src={pin.image_url} className="w-20 h-20 rounded-xl object-cover border border-slate-100 shrink-0" />
+                          ) : (
+                            <div className="w-20 h-20 bg-slate-50 rounded-xl flex items-center justify-center text-3xl shrink-0 border border-slate-100 shadow-inner-soft">
+                              {pin.color.startsWith('#') ? '📍' : pin.color}
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-bold text-slate-800 text-sm truncate mb-1 group-hover:text-brand-600 transition-colors">{pin.title}</h4>
+                            <p className="text-xs text-slate-500 line-clamp-3 leading-relaxed">{pin.memo || 'メモはありません'}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 mt-auto pt-3 border-t border-slate-50">
+                          {pin.color.startsWith('#') ? <span className="w-3.5 h-3.5 rounded-full shadow-inner" style={{backgroundColor: pin.color}}></span> : <span className="text-sm leading-none">{pin.color}</span>}
+                          <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-full truncate">
+                             {authorName}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const DriveImagePicker = ({ onSelect, onClose }) => {
+        const { state, dispatch, showToast } = useContext(AppContext);
+        const [loading, setLoading] = useState(!state.driveImages);
+
+        useEffect(() => {
+          runGas('getDriveImages').then(res => {
+            if (res.status === 'success') dispatch(p => ({...p, driveImages: res.images})); 
+            else if (!state.driveImages) showToast(<span><RubyText text="画像" kana="がぞう" />の<RubyText text="取得" kana="しゅとく" />に<RubyText text="失敗" kana="しっぱい" />しました</span>, 'error');
+            setLoading(false);
+          });
+        }, [dispatch, showToast, state.driveImages]);
+
+        const images = state.driveImages || [];
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 z-[9999] flex items-center justify-center p-4 backdrop-blur-sm animate-pop-in no-print"
+               onPointerDown={e=>e.stopPropagation()} onPointerUp={e=>e.stopPropagation()}>
+            <div className="bg-white w-full max-w-4xl h-[85vh] rounded-[24px] shadow-float flex flex-col overflow-hidden">
+              <div className="bg-slate-800 px-6 py-4 text-white font-bold flex justify-between items-center shrink-0">
+                <span className="flex items-center gap-3">
+                  <span className="bg-white/10 p-2 rounded-xl text-lg">📁</span>
+                  <span>Googleドライブから<RubyText text="画像" kana="がぞう" />を<RubyText text="選" kana="えら" />ぶ</span>
+                </span>
+                <button onClick={onClose} className="text-white/70 hover:text-white hover:bg-white/20 p-2 rounded-full transition"><SvgIcon.Close /></button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-6 bg-surface custom-scrollbar">
+                {loading ? (
+                   <div className="flex justify-center items-center h-full"><div className="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-brand-500"></div></div>
+                ) : images.length === 0 ? (
+                   <div className="text-center text-slate-400 mt-20 font-bold">
+                     <span className="text-5xl block mb-4 opacity-40">🖼️</span>
+                     <span><RubyText text="画像" kana="がぞう" />が<RubyText text="見" kana="み" />つかりません</span>
+                   </div>
+                ) : (
+                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                     {images.map(img => (
+                       <div key={img.id} onClick={() => onSelect(`https://drive.google.com/thumbnail?sz=w1500&id=${img.id}`)} className="cursor-pointer group relative bg-white p-2.5 rounded-2xl shadow-sm hover:shadow-float transition border-2 border-transparent hover:border-brand-500">
+                         <img src={img.thumbnail} className="w-full h-32 object-cover rounded-xl bg-slate-100" />
+                         <div className="text-xs text-slate-600 mt-2.5 truncate font-bold px-1">{img.name}</div>
+                         <div className="absolute inset-0 bg-brand-500/20 opacity-0 group-hover:opacity-100 transition rounded-2xl flex items-center justify-center backdrop-blur-[1px]">
+                           <span className="bg-white text-brand-600 font-bold px-5 py-2.5 rounded-full text-sm shadow-md flex items-center gap-2"><span>✨</span>これにする</span>
+                         </div>
+                       </div>
+                     ))}
+                   </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const TeacherConsole = ({ onClose }) => {
+        const { state, dispatch, showToast } = useContext(AppContext);
+        const [activeTab, setActiveTab] = useState('dashboard');
+        const [bulkRoster, setBulkRoster] = useState('');
+        const [newUnit, setNewUnit] = useState({ name: '', map_name: '基本マップ', url: '' });
+        const [newMap, setNewMap] = useState({ name: '', url: '', keepPins: true });
+        const [apiKeyInput, setApiKeyInput] = useState('');
+        const [customStampsInput, setCustomStampsInput] = useState('');
+        const [processing, setProcessing] = useState(false);
+        const [showPicker, setShowPicker] = useState(null); 
+
+        const [selectedStudent, setSelectedStudent] = useState(null);
+        const [aiAnalysis, setAiAnalysis] = useState('');
+        const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+        const students = state.users.filter(u => u.role !== 'teacher');
+
+        useEffect(() => {
+          if (state.activeUnit?.custom_stamps) {
+            setCustomStampsInput(state.activeUnit.custom_stamps.join(''));
+          } else {
+            setCustomStampsInput('📍🐛🌸🚗⚠️🏠❓💡');
+          }
+        }, [state.activeUnit?.custom_stamps]);
+
+        const executeAction = async (action, data, successMsg, resetCb) => {
+          setProcessing(true);
+          try {
+            await runGas('executeAction', JSON.stringify({ action, ...data }));
+            showToast(successMsg);
+            if (resetCb) resetCb();
+          } catch(e) { showToast('エラーが発生しました', 'error'); }
+          setProcessing(false);
+        };
+
+        const handleSaveRoster = () => executeAction('save_users', { users: bulkRoster.split('\n').map(line => { const [email, name, group] = line.split(','); return email && name && group ? { email, name, group_id: group } : null; }).filter(Boolean) }, '名簿を登録しました', () => setBulkRoster(''));
+        const handleSaveUnit = () => executeAction('save_unit', { unit_id: `u_${Date.now()}`, name: newUnit.name, map_name: newUnit.map_name, map_url: newUnit.url }, '新しい単元を開始しました', () => setNewUnit({name:'', map_name: '基本マップ', url:''}));
+        const handleAddMap = () => executeAction('add_map', { unit_id: state.activeUnit.unit_id, map_id: `m_${Date.now()}`, name: newMap.name, map_url: newMap.url, copy_from_map_id: newMap.keepPins ? state.activeMapId : null }, '地図を追加しました', () => setNewMap({name:'', url:'', keepPins: true}));
+        
+        const toggleSetting = async (field) => {
+          if(!state.activeUnit) return;
+          const prevVal = state.activeUnit[field] !== false;
+          const newVal = !prevVal;
+          dispatch(p => ({...p, activeUnit: {...p.activeUnit, [field]: newVal}}));
+          try {
+            await runGas('executeAction', JSON.stringify({ action: field === 'chat_enabled' ? 'toggle_chat' : 'toggle_stamp', unit_id: state.activeUnit.unit_id, [field]: newVal }));
+            showToast(`設定を${newVal ? 'ON' : 'OFF'}にしました`);
+          } catch(e) { 
+            dispatch(p => ({...p, activeUnit: {...p.activeUnit, [field]: prevVal}}));
+            showToast('通信エラー', 'error'); 
+          }
+        };
+
+        const handleSaveStamps = () => {
+          const stampsArray = Array.from(customStampsInput.replace(/\s+/g, ''));
+          if (stampsArray.length === 0) return showToast('スタンプを入力してください', 'error');
+          executeAction('update_custom_stamps', { unit_id: state.activeUnit.unit_id, custom_stamps: stampsArray }, 'スタンプを更新しました', () => dispatch(p => ({...p, activeUnit: {...p.activeUnit, custom_stamps: stampsArray}})));
+        };
+
+        const handleSaveApiKey = () => executeAction('save_api_key', { api_key: apiKeyInput.trim() }, 'APIキーを保存しました', () => { dispatch(p => ({...p, hasApiKey: true})); setApiKeyInput(''); });
+
+        const handleAnalyzeStudent = async () => {
+          if (!selectedStudent) return;
+          setIsAnalyzing(true); setAiAnalysis('');
+          try {
+            const res = await runGas('generateAIPortfolio', JSON.stringify({ unit_id: state.activeUnit.unit_id, email: selectedStudent.email }));
+            if (res.status === 'success') setAiAnalysis(res.portfolio);
+            else showToast(res.message, 'error');
+          } catch(e) { showToast('分析エラー', 'error'); }
+          setIsAnalyzing(false);
+        };
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 z-modal flex justify-end print-full" onPointerDown={e=>e.stopPropagation()} onPointerUp={e=>e.stopPropagation()}>
+            <div className="w-full max-w-4xl bg-surface h-full shadow-float animate-slide-in-right flex flex-col relative print-full">
+              
+              <div className="bg-slate-800 text-white px-6 py-4 shrink-0 flex justify-between items-center no-print">
+                <h2 className="text-xl font-bold flex items-center gap-2"><span className="bg-white/10 p-1.5 rounded-lg">🏫</span> 教師用コンソール</h2>
+                <button onClick={onClose} className="text-white/70 hover:text-white hover:bg-white/20 p-2 rounded-full transition"><SvgIcon.Close /></button>
+              </div>
+
+              <div className="flex px-2 bg-white border-b border-slate-200 overflow-x-auto shrink-0 custom-scrollbar no-print">
+                {[
+                  { id: 'dashboard', icon: '📊', label: '学習分析' },
+                  { id: 'unit', icon: '🗺️', label: '単元・設定' },
+                  { id: 'roster', icon: '👥', label: '名簿登録' },
+                  { id: 'settings', icon: '⚙️', label: 'AI設定' }
+                ].map(tab => (
+                  <button key={tab.id} onClick={()=>setActiveTab(tab.id)} className={`px-5 py-4 font-bold text-sm whitespace-nowrap border-b-2 transition-colors flex items-center gap-2 ${activeTab===tab.id ? 'border-brand-500 text-brand-600' : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}>
+                    <span>{tab.icon}</span>{tab.label}
+                  </button>
+                ))}
+              </div>
+              
+              <div className="flex-1 overflow-y-auto relative flex flex-col print-full">
+                
+                {/* 📊 ダッシュボード */}
+                {activeTab === 'dashboard' && (
+                  <div className="flex flex-1 overflow-hidden print-full">
+                    <div className="w-1/3 border-r border-slate-200 bg-white flex flex-col no-print">
+                      <div className="p-4 bg-slate-50 font-bold text-slate-600 text-xs border-b border-slate-200 shrink-0 uppercase tracking-wider">児童リスト ({students.length})</div>
+                      <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+                        {students.map(s => (
+                          <button key={s.email} onClick={() => {setSelectedStudent(s); setAiAnalysis('');}}
+                                  className={`w-full text-left p-3 rounded-xl transition-all flex items-center gap-3 ${selectedStudent?.email === s.email ? 'bg-brand-50 border border-brand-200 text-brand-700 shadow-sm' : 'hover:bg-slate-50 text-slate-600 border border-transparent'}`}>
+                            <span className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 ${selectedStudent?.email === s.email ? 'bg-brand-500' : 'bg-slate-300'}`}>
+                              {s.group_id.charAt(0)}
+                            </span>
+                            <div className="flex-1 truncate font-bold text-sm">{s.name}</div>
+                          </button>
+                        ))}
+                        {students.length === 0 && <p className="text-slate-400 text-sm p-4 text-center mt-10">名簿が登録されていません</p>}
+                      </div>
+                    </div>
+                    
+                    <div className="flex-1 bg-surface flex flex-col overflow-hidden relative print-full">
+                      {selectedStudent ? (() => {
+                        const studentPins = state.pins.filter(p => p.email === selectedStudent.email);
+                        const studentChats = state.chats.filter(c => c.email === selectedStudent.email);
+                        
+                        return (
+                          <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar print-full">
+                            <div className="flex justify-between items-end">
+                              <div>
+                                <div className="text-sm font-bold text-brand-600 mb-1">{selectedStudent.group_id}</div>
+                                <h2 className="text-3xl font-extrabold text-slate-800">{selectedStudent.name} <span className="text-lg font-normal text-slate-500 ml-1">の活動記録</span></h2>
+                              </div>
+                              <div className="flex gap-3 no-print">
+                                <button onClick={handlePrint} className="bg-white border border-slate-200 text-slate-600 font-bold px-4 py-2 rounded-xl shadow-sm hover:bg-slate-50 transition flex items-center gap-2 text-sm">🖨️ 印刷</button>
+                                <div className="bg-white px-5 py-2 rounded-xl shadow-sm border border-slate-200 text-center"><div className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">ピン</div><div className="text-xl font-extrabold text-accent-500">{studentPins.length}</div></div>
+                                <div className="bg-white px-5 py-2 rounded-xl shadow-sm border border-slate-200 text-center"><div className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">発言</div><div className="text-xl font-extrabold text-brand-500">{studentChats.length}</div></div>
+                              </div>
+                            </div>
+
+                            <div className="bg-gradient-to-br from-indigo-500 via-purple-500 to-fuchsia-500 rounded-[24px] p-[2px] shadow-float print-full">
+                              <div className="bg-white rounded-[22px] p-6 h-full">
+                                <div className="flex justify-between items-center mb-4 no-print">
+                                  <h3 className="font-bold text-indigo-900 text-lg flex items-center gap-2"><span>✨</span> AI ポートフォリオ生成</h3>
+                                  {state.hasApiKey ? (
+                                    <button onClick={handleAnalyzeStudent} disabled={isAnalyzing} className="bg-indigo-50 text-indigo-600 border border-indigo-100 hover:bg-indigo-100 font-bold px-4 py-2 rounded-full text-sm transition shadow-sm">
+                                      {isAnalyzing ? '分析中...' : (aiAnalysis ? '再分析する' : '分析を実行する')}
+                                    </button>
+                                  ) : (
+                                    <button onClick={() => setActiveTab('settings')} className="bg-accent-50 text-accent-600 font-bold px-4 py-2 rounded-full text-sm animate-pulse hover:bg-accent-100 transition border border-accent-100">
+                                      APIキーを設定してください
+                                    </button>
+                                  )}
+                                </div>
+                                {isAnalyzing && (
+                                  <div className="py-12 flex flex-col items-center justify-center text-indigo-400 animate-pulse no-print">
+                                    <span className="text-5xl mb-4 drop-shadow-sm">🧠</span>
+                                    <p className="font-bold tracking-wide">活動記録をAIが読み込んでいます...</p>
+                                  </div>
+                                )}
+                                {aiAnalysis && !isAnalyzing && (
+                                  <div className="bg-indigo-50/50 p-5 rounded-xl text-sm font-medium text-slate-700 whitespace-pre-wrap leading-relaxed border border-indigo-100/50">
+                                    {aiAnalysis}
+                                  </div>
+                                )}
+                                {!aiAnalysis && !isAnalyzing && (
+                                  <div className="py-10 text-center no-print">
+                                    <p className="text-slate-400 text-sm">{state.hasApiKey ? 'ボタンを押すと、ピンの内容や発言から、この児童の「興味関心」や「良いところ」を自動でまとめます。' : 'AI分析を利用するには、上のボタンからGemini APIキーを設定してください。'}</p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <div>
+                              <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><span>📍</span> 刺したピン一覧</h4>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {studentPins.map(p => (
+                                  <div key={p.pin_id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-start gap-4">
+                                    {p.image_url ? <img src={p.image_url} className="w-16 h-16 rounded-xl object-cover shrink-0 border border-slate-100" /> : <div className="w-16 h-16 bg-slate-50 rounded-xl flex items-center justify-center text-2xl shrink-0 border border-slate-100 shadow-inner-soft">{p.color.startsWith('#')?'📍':p.color}</div>}
+                                    <div className="flex-1 min-w-0">
+                                      <h5 className="font-bold text-slate-800 text-sm truncate mb-1">{p.title}</h5>
+                                      <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">{p.memo || 'メモなし'}</p>
+                                    </div>
+                                  </div>
+                                ))}
+                                {studentPins.length === 0 && <p className="text-sm text-slate-400 col-span-2 bg-slate-50 p-4 rounded-xl text-center border border-slate-100">まだピンを刺していません</p>}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })() : (
+                        <div className="flex-1 flex flex-col items-center justify-center text-slate-400 font-bold no-print">
+                          <span className="text-4xl mb-4 opacity-50">👈</span>
+                          左のリストから児童を選択してください
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 🗺️ 単元・設定 */}
+                {activeTab === 'unit' && (
+                  <div className="max-w-3xl mx-auto w-full p-6 sm:p-10 space-y-8 animate-pop-in">
+                    <section>
+                      <h3 className="font-extrabold text-slate-800 text-lg mb-4 flex items-center gap-2"><span>💬</span> コミュニケーション設定</h3>
+                      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+                        <div>
+                          <p className="font-bold text-slate-800">みんなのひろば（チャット）</p>
+                          <p className="text-xs text-slate-500 mt-1">※オフにしてもピンに対するコメントは可能です</p>
+                        </div>
+                        <button onClick={()=>toggleSetting('chat_enabled')} className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition-colors focus:outline-none ${state.activeUnit?.chat_enabled ? 'bg-brand-500' : 'bg-slate-200'}`}>
+                          <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform shadow-sm ${state.activeUnit?.chat_enabled ? 'translate-x-7' : 'translate-x-1'}`}/>
+                        </button>
+                      </div>
+                    </section>
+
+                    <section>
+                      <h3 className="font-extrabold text-slate-800 text-lg mb-4 flex items-center gap-2"><span>📍</span> ピンとスタンプの設定</h3>
+                      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="flex items-center justify-between p-5 border-b border-slate-100">
+                          <div>
+                            <p className="font-bold text-slate-800">絵文字スタンプピンの使用</p>
+                            <p className="text-xs text-slate-500 mt-1">オンにすると、ピンの代わりに指定したスタンプを使えます</p>
+                          </div>
+                          <button onClick={()=>toggleSetting('stamp_enabled')} className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition-colors focus:outline-none ${state.activeUnit?.stamp_enabled !== false ? 'bg-brand-500' : 'bg-slate-200'}`}>
+                            <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform shadow-sm ${state.activeUnit?.stamp_enabled !== false ? 'translate-x-7' : 'translate-x-1'}`}/>
+                          </button>
+                        </div>
+                        
+                        {state.activeUnit?.stamp_enabled !== false && (
+                          <div className="p-5 bg-slate-50 animate-pop-in">
+                            <p className="font-bold text-slate-700 text-sm mb-1">使用するスタンプのカスタマイズ</p>
+                            <p className="text-xs text-slate-500 mb-3">ピンの代わりに使える絵文字を連続で入力してください</p>
+                            <div className="flex gap-3">
+                              <input type="text" value={customStampsInput} onChange={e=>setCustomStampsInput(e.target.value)} placeholder="📍🐛🌸🚗⚠️🏠❓💡" className="flex-1 px-4 py-3 border border-slate-200 rounded-xl bg-white text-xl tracking-widest focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition shadow-inner-soft" />
+                              <button onClick={handleSaveStamps} disabled={processing} className="bg-slate-800 text-white font-bold px-6 py-3 rounded-xl shadow-sm hover:bg-slate-700 transition whitespace-nowrap">更新</button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </section>
+
+                    <section>
+                      <h3 className="font-extrabold text-slate-800 text-lg mb-4 flex items-center gap-2"><span>🗺️</span> 地図の管理</h3>
+                      <div className="space-y-4">
+                        {state.activeUnit && (
+                          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm border-l-4 border-l-accent-500 relative overflow-hidden group">
+                            <div className="absolute top-0 right-0 bg-accent-50 text-accent-600 text-[10px] font-bold px-3 py-1 rounded-bl-xl border-b border-l border-accent-100">追加</div>
+                            <h4 className="font-bold text-slate-800 mb-1">今の単元に「新しい地図」を追加</h4>
+                            <p className="text-xs text-slate-500 mb-5">予想と結果の比較など、タブで切り替える地図を追加します。</p>
+                            
+                            <div className="space-y-4">
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-500 mb-1 uppercase tracking-wider">タブの名前</label>
+                                <input type="text" placeholder="例：探検後マップ" value={newMap.name} onChange={e=>setNewMap({...newMap, name: e.target.value})} className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50 text-sm font-bold focus:ring-2 focus:ring-brand-500 outline-none transition" />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-500 mb-1 uppercase tracking-wider">背景画像</label>
+                                <div className="flex gap-2">
+                                  <input type="text" placeholder="画像URL" value={newMap.url} readOnly className="flex-1 px-4 py-3 border border-slate-200 rounded-xl bg-slate-100 text-sm outline-none" />
+                                  <button onClick={() => setShowPicker('map')} className="bg-brand-50 text-brand-600 border border-brand-200 font-bold px-4 py-2 rounded-xl hover:bg-brand-500 hover:text-white transition whitespace-nowrap flex items-center gap-2">
+                                    <span>📁</span> ドライブ
+                                  </button>
+                                </div>
+                              </div>
+                              <label className="flex items-center gap-3 p-4 bg-accent-50/50 border border-accent-100 rounded-xl cursor-pointer hover:bg-accent-50 transition">
+                                <input type="checkbox" checked={newMap.keepPins} onChange={e=>setNewMap({...newMap, keepPins: e.target.checked})} className="w-5 h-5 accent-accent-500 rounded cursor-pointer" />
+                                <span className="text-sm font-bold text-accent-900">いま表示している地図の「ピン」をそのまま引き継ぐ</span>
+                              </label>
+                              <button onClick={handleAddMap} disabled={processing} className="w-full bg-accent-500 text-white py-3.5 rounded-xl font-bold hover:bg-accent-600 transition shadow-sm">この地図を追加する</button>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm border-l-4 border-l-brand-500 opacity-80 hover:opacity-100 transition">
+                          <h4 className="font-bold text-slate-800 mb-1">全てリセットして「新しい単元」を作る</h4>
+                          <p className="text-xs text-slate-500 mb-5">児童の画面が完全に切り替わり、ゼロからのスタートになります。</p>
+                          <div className="space-y-4">
+                            <div>
+                              <input type="text" placeholder="単元のなまえ（例：町探検）" value={newUnit.name} onChange={e=>setNewUnit({...newUnit, name: e.target.value})} className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50 text-sm font-bold focus:ring-2 focus:ring-brand-500 outline-none transition" />
+                            </div>
+                            <div className="flex gap-2">
+                              <input type="text" placeholder="画像URL" value={newUnit.url} readOnly className="flex-1 px-4 py-3 border border-slate-200 rounded-xl bg-slate-100 text-sm outline-none" />
+                              <button onClick={() => setShowPicker('unit')} className="bg-brand-50 text-brand-600 border border-brand-200 font-bold px-4 py-2 rounded-xl hover:bg-brand-500 hover:text-white transition whitespace-nowrap flex items-center gap-2">
+                                <span>📁</span> ドライブ
+                              </button>
+                            </div>
+                            <button onClick={handleSaveUnit} disabled={processing} className="w-full bg-brand-500 text-white py-3.5 rounded-xl font-bold hover:bg-brand-600 transition shadow-sm">まっさらな状態で単元を開始</button>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  </div>
+                )}
+
+                {/* 👥 名簿登録 */}
+                {activeTab === 'roster' && (
+                  <div className="max-w-3xl mx-auto w-full p-6 sm:p-10 animate-pop-in">
+                    <div className="bg-white p-8 rounded-3xl shadow-soft border border-slate-100">
+                      <h3 className="font-extrabold text-slate-800 text-xl mb-2 flex items-center gap-2"><span>👥</span> 児童の登録（名簿）</h3>
+                      <p className="text-sm text-slate-500 mb-6 leading-relaxed">スプレッドシートやエクセルからコピーして貼り付けてください。<br/>書式: <code className="bg-slate-100 px-2 py-1 rounded text-brand-600 font-bold">メールアドレス, 氏名, 班名</code></p>
+                      
+                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-4 font-mono text-xs text-slate-400">
+                        001@school.ed.jp, 探検太郎, 1班<br/>
+                        002@school.ed.jp, みっけ花子, 2班
+                      </div>
+                      
+                      <textarea value={bulkRoster} onChange={e=>setBulkRoster(e.target.value)} className="w-full h-64 p-5 border border-slate-200 rounded-2xl mb-6 bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition shadow-inner-soft font-mono text-sm leading-loose" placeholder="ここに貼り付け..."></textarea>
+                      <button onClick={handleSaveRoster} disabled={processing} className="w-full bg-brand-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-brand-700 transition shadow-float">名簿を一括登録する</button>
+                    </div>
+                  </div>
+                )}
+
+                {/* ⚙️ AI設定 */}
+                {activeTab === 'settings' && (
+                  <div className="max-w-3xl mx-auto w-full p-6 sm:p-10 animate-pop-in">
+                    <div className="bg-white p-8 rounded-3xl shadow-soft border border-slate-100">
+                      <h3 className="font-extrabold text-slate-800 text-xl mb-2 flex items-center gap-2"><span>🤖</span> AI機能（Gemini API）の設定</h3>
+                      <p className="text-sm text-slate-500 mb-6">学習分析ダッシュボードで児童の活動をAIに分析させるには、GoogleのGemini APIキーが必要です。</p>
+                      
+                      <div className="mb-8 flex items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                         <span className="text-sm font-bold text-slate-600">現在の状態:</span>
+                         {state.hasApiKey ? 
+                           <span className="px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full text-xs font-bold border border-emerald-200 flex items-center gap-1"><span>✅</span> 設定済み</span> : 
+                           <span className="px-3 py-1 bg-rose-100 text-rose-800 rounded-full text-xs font-bold border border-rose-200 animate-pulse flex items-center gap-1"><span>❌</span> 未設定</span>}
+                      </div>
+
+                      <div className="space-y-4 mb-8">
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-500 mb-2 uppercase tracking-wider">APIキーを入力</label>
+                          <input type="password" placeholder="AIzaSy..." value={apiKeyInput} onChange={e=>setApiKeyInput(e.target.value)} className="w-full p-4 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-brand-500 outline-none transition font-mono text-lg" />
+                        </div>
+                        <button onClick={handleSaveApiKey} disabled={processing} className="w-full bg-slate-800 text-white py-4 rounded-xl font-bold hover:bg-slate-900 transition shadow-md">APIキーを保存して有効化</button>
+                      </div>
+
+                      <div className="p-6 bg-brand-50 rounded-2xl text-sm text-brand-900 border border-brand-100">
+                         <p className="font-bold text-base mb-3 flex items-center gap-2"><span>💡</span> APIキーの取得方法（無料）</p>
+                         <ol className="list-decimal ml-5 space-y-3 font-medium">
+                           <li><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline font-bold text-brand-600 hover:text-brand-800 transition">Google AI Studio</a> にアクセスします。</li>
+                           <li>Googleアカウントでログインし、<strong>「Create API key」</strong>をクリックして新しいキーを作成します。</li>
+                           <li>作成されたキーをコピーし、上の入力欄に貼り付けて保存してください。</li>
+                         </ol>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            {showPicker === 'unit' && <DriveImagePicker onSelect={(url) => { setNewUnit(p => ({...p, url})); setShowPicker(null); }} onClose={() => setShowPicker(null)} />}
+            {showPicker === 'map' && <DriveImagePicker onSelect={(url) => { setNewMap(p => ({...p, url})); setShowPicker(null); }} onClose={() => setShowPicker(null)} />}
+          </div>
+        );
+      };
+
+      // ★ リアクションコンポーネント
+      const ReactionBar = ({ targetType, targetId }) => {
+        const { state, dispatch } = useContext(AppContext);
+        const myReactions = state.reactions.filter(r => r.target_id === targetId && r.target_type === targetType);
+        
+        // 常に「👍」のみを使用
+        const emojis = REACTION_EMOJIS;
+
+        const toggleReaction = async (emoji) => {
+          const existing = myReactions.find(r => r.email === state.user.email && r.emoji === emoji);
+          if (existing) {
+            dispatch(p => ({...p, reactions: p.reactions.filter(r => r !== existing)}));
+          } else {
+            const newReaction = { reaction_id: 'r_temp_'+Date.now(), unit_id: state.activeUnit.unit_id, email: state.user.email, target_type: targetType, target_id: targetId, emoji };
+            dispatch(p => ({...p, reactions: [...p.reactions, newReaction]}));
+          }
+          try { await runGas('executeAction', JSON.stringify({ action: 'toggle_reaction', unit_id: state.activeUnit.unit_id, email: state.user.email, target_type: targetType, target_id: targetId, emoji })); } 
+          catch(e) { /* Error handling silently */ }
+        };
+
+        const counts = {};
+        myReactions.forEach(r => { counts[r.emoji] = (counts[r.emoji] || 0) + 1; });
+
+        return (
+          <div className="flex gap-2 items-center flex-wrap">
+            <div className="flex gap-1 bg-slate-50 rounded-full px-2 py-1 border border-slate-200">
+              {emojis.map(emoji => {
+                const isPressed = myReactions.some(r => r.email === state.user.email && r.emoji === emoji);
+                return (
+                  <button key={emoji} onClick={() => toggleReaction(emoji)} className={`w-8 h-8 flex items-center justify-center rounded-full transition-all duration-200 ${isPressed ? 'bg-brand-100 border border-brand-200 shadow-sm scale-110' : 'hover:bg-slate-200 opacity-60 hover:opacity-100 grayscale hover:grayscale-0'}`}>
+                    <span className="text-lg leading-none">{emoji}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {Object.entries(counts).map(([emoji, count]) => count > 0 && (
+               <div key={emoji} className="text-xs font-bold text-slate-600 bg-white border border-slate-200 px-2.5 py-1 rounded-full shadow-sm flex items-center gap-1">
+                 <span>{emoji}</span><span className="text-brand-600">{count}</span>
+               </div>
+            ))}
+          </div>
+        );
+      };
+
+      const PinCreateModal = ({ pos, onClose }) => {
+        const { state, showToast, dispatch } = useContext(AppContext);
+        const [form, setForm] = useState({ color: PIN_COLORS[0], title: '', memo: '', imageUrl: null });
+        const [loading, setLoading] = useState(false);
+        const [showPicker, setShowPicker] = useState(false); 
+
+        const handleSubmit = async () => {
+          if (!form.title) return showToast(<span><RubyText text="名前" kana="なまえ" />をかいてね</span>, 'error');
+          setLoading(true);
+          const newPinId = `p_${Date.now()}`;
+          const payload = {
+            action: 'save_pin', pin_id: newPinId, unit_id: state.activeUnit.unit_id,
+            map_id: state.activeMapId, email: state.user.email, x: pos.x, y: pos.y, color: form.color,
+            title: form.title, memo: form.memo, image_url: form.imageUrl 
+          };
+          try {
+            await runGas('executeAction', JSON.stringify(payload));
+            showToast('ピンをさしました！');
+            dispatch(p => ({...p, pins: [...p.pins, payload]}));
+            onClose();
+          } catch(e) { showToast('エラーがおきました', 'error'); }
+          setLoading(false);
+        };
+
+        const customStamps = state.activeUnit?.custom_stamps || [];
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 z-modal flex items-center justify-center p-4 backdrop-blur-sm animate-pop-in"
+               onPointerDown={e=>e.stopPropagation()} onPointerUp={e=>e.stopPropagation()}>
+            <div className="bg-white w-full max-w-md rounded-[24px] shadow-float flex flex-col overflow-hidden">
+              <div className="bg-accent-500 px-6 py-4 text-white font-bold flex justify-between items-center relative">
+                <span className="flex items-center gap-2 text-lg">
+                  <span className="bg-white/20 p-1.5 rounded-lg leading-none">📍</span>
+                  <span>ピンをさす</span>
+                </span>
+                <button onClick={onClose} className="text-white/70 hover:text-white hover:bg-white/20 p-2 rounded-full transition"><SvgIcon.Close /></button>
+              </div>
+              
+              <div className="p-6 space-y-6">
+                <div>
+                  <p className="text-[11px] font-bold text-slate-500 mb-2 uppercase tracking-wider">アイコンをえらぶ</p>
+                  <div className="flex flex-wrap gap-2 justify-center bg-slate-50 p-4 rounded-2xl border border-slate-100 shadow-inner-soft">
+                    {PIN_COLORS.map(c => (
+                      <button key={c} onClick={() => setForm(p=>({...p, color: c}))} className={`w-10 h-10 rounded-full border-[3px] transition-transform ${form.color === c ? 'border-slate-800 scale-110 shadow-md' : 'border-white shadow-sm hover:scale-105'}`} style={{backgroundColor: c}} />
+                    ))}
+                    
+                    {state.activeUnit?.stamp_enabled !== false && customStamps.length > 0 && (
+                      <React.Fragment>
+                        <div className="w-full h-px bg-slate-200 my-2"></div>
+                        {customStamps.map(stamp => (
+                          <button key={stamp} onClick={() => setForm(p=>({...p, color: stamp}))} className={`text-2xl w-11 h-11 flex items-center justify-center rounded-full border-[3px] transition-all ${form.color === stamp ? 'border-accent-500 bg-white scale-110 shadow-md' : 'border-transparent hover:bg-slate-200'}`}>
+                            {stamp}
+                          </button>
+                        ))}
+                      </React.Fragment>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <input type="text" placeholder="みつけたものの なまえ" value={form.title} onChange={e=>setForm(p=>({...p, title: e.target.value}))} className="w-full px-5 py-4 border border-slate-200 rounded-xl font-bold bg-slate-50 focus:bg-white focus:ring-2 focus:ring-accent-500 focus:border-accent-500 outline-none transition shadow-sm" />
+                  <textarea placeholder="メモ（みつけたこと）" value={form.memo} onChange={e=>setForm(p=>({...p, memo: e.target.value}))} className="w-full px-5 py-4 border border-slate-200 rounded-xl font-medium bg-slate-50 focus:bg-white focus:ring-2 focus:ring-accent-500 focus:border-accent-500 outline-none resize-none transition shadow-sm min-h-[100px] leading-relaxed" />
+                </div>
+                
+                {!form.imageUrl ? (
+                  <button onClick={() => setShowPicker(true)} className="block w-full p-5 border-2 border-dashed border-slate-300 rounded-2xl text-center cursor-pointer bg-slate-50 hover:bg-accent-50 hover:border-accent-300 transition group flex flex-col items-center justify-center gap-2">
+                    <span className="text-slate-400 group-hover:text-accent-500 transition-colors"><SvgIcon.Image /></span>
+                    <span className="text-slate-500 font-bold text-sm group-hover:text-accent-600 transition-colors">
+                      <span className="inline-block">ドライブから</span><RubyText text="写真" kana="しゃしん" /><span className="inline-block">を</span><RubyText text="選" kana="えら" /><span className="inline-block">ぶ</span>
+                    </span>
+                  </button>
+                ) : (
+                  <div className="relative rounded-2xl overflow-hidden shadow-sm border border-slate-200 group">
+                    <img src={form.imageUrl} className="w-full h-40 object-cover" />
+                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                    <button onClick={() => setForm(p=>({...p, imageUrl: null}))} className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm text-slate-800 w-8 h-8 flex items-center justify-center rounded-full shadow-md font-bold hover:bg-rose-500 hover:text-white transition"><SvgIcon.Close /></button>
+                  </div>
+                )}
+                <button onClick={handleSubmit} disabled={loading} className="w-full bg-accent-500 text-white font-bold text-lg py-4 rounded-xl shadow-float hover:bg-accent-600 active:scale-95 transition-all flex items-center justify-center gap-2">
+                  {loading ? <span><RubyText text="送信中" kana="そうしんちゅう" />...</span> : <span>けってい！</span>}
+                </button>
+              </div>
+            </div>
+            {showPicker && <DriveImagePicker onSelect={(url) => { setForm(p=>({...p, imageUrl: url})); setShowPicker(false); }} onClose={() => setShowPicker(false)} />}
+          </div>
+        );
+      };
+
+      const PinDetailModal = ({ pin, onClose }) => {
+        const { state, showToast, dispatch } = useContext(AppContext);
+        const [isDeleting, setIsDeleting] = useState(false);
+        const [confirmDelete, setConfirmDelete] = useState(false);
+        const [comment, setComment] = useState('');
+        
+        const isOwnerOrTeacher = state.user.email === pin.email || state.user.role === 'teacher';
+        const authorInfo = state.users.find(u => u.email === pin.email) || {name: '不明', group_id: '?'};
+        const pinComments = state.chats.filter(c => c.target_type === 'pin' && c.target_id === pin.pin_id);
+
+        const handleDelete = async () => {
+          setIsDeleting(true);
+          try {
+            await runGas('executeAction', JSON.stringify({ action: 'delete_pin', pin_id: pin.pin_id }));
+            showToast('ピンを削除しました');
+            dispatch(p => ({...p, pins: p.pins.filter(x => x.pin_id !== pin.pin_id)}));
+            onClose();
+          } catch(e) { showToast('エラー', 'error'); setIsDeleting(false); }
+        };
+
+        const handleSendComment = async () => {
+          if(!comment.trim()) return;
+          const payload = { action: 'save_chat', chat_id: `c_${Date.now()}`, unit_id: state.activeUnit.unit_id, email: state.user.email, message: comment, target_type: 'pin', target_id: pin.pin_id };
+          setComment('');
+          dispatch(p => ({...p, chats: [...p.chats, payload]}));
+          try { await runGas('executeAction', JSON.stringify(payload)); } 
+          catch(e) { dispatch(p => ({...p, chats: p.chats.filter(c => c.chat_id !== payload.chat_id)})); showToast(<span><RubyText text="送信失敗" kana="そうしんしっぱい" /></span>,'error'); }
+        };
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 z-[9500] flex items-center justify-center p-4 backdrop-blur-sm animate-pop-in" 
+               onClick={onClose} onPointerDown={e=>e.stopPropagation()} onPointerUp={e=>e.stopPropagation()}>
+            <div className="bg-white w-full max-w-lg rounded-[24px] shadow-float flex flex-col overflow-hidden relative max-h-[90vh]" onClick={e => e.stopPropagation()}>
+              <div className="overflow-y-auto flex-1 custom-scrollbar">
+                {pin.image_url ? (
+                  <div className="w-full h-64 bg-slate-100 relative shrink-0">
+                    <img src={pin.image_url} className="w-full h-full object-cover" />
+                    <button onClick={onClose} className="absolute top-4 right-4 bg-black/40 text-white rounded-full w-10 h-10 flex items-center justify-center hover:bg-black/60 backdrop-blur-md transition"><SvgIcon.Close /></button>
+                  </div>
+                ) : (
+                  <div className="w-full flex justify-end p-4 absolute top-0 z-10 pointer-events-none">
+                     <button onClick={onClose} className="bg-slate-100/80 text-slate-500 rounded-full w-10 h-10 flex items-center justify-center hover:bg-slate-200 transition pointer-events-auto backdrop-blur-sm"><SvgIcon.Close /></button>
+                  </div>
+                )}
+                
+                <div className={`p-6 sm:p-8 relative ${!pin.image_url ? 'pt-12' : ''}`}>
+                  
+                  <div className="flex items-center gap-2 mb-4">
+                    {pin.color.startsWith('#') ? <span className="w-4 h-4 rounded-full shadow-inner border border-black/10" style={{backgroundColor: pin.color}}></span> : <span className="text-xl leading-none drop-shadow-sm">{pin.color}</span>}
+                    <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-xs font-bold border border-slate-200">{authorInfo.group_id} - {authorInfo.name}</span>
+                  </div>
+
+                  <h3 className="text-2xl sm:text-3xl font-extrabold text-slate-800 mb-4 leading-tight">{pin.title}</h3>
+
+                  <div className="bg-accent-50/50 p-5 rounded-2xl border border-accent-100 mb-3 shadow-inner-soft">
+                    <p className="text-slate-700 whitespace-pre-wrap font-medium text-[15px] leading-relaxed">{pin.memo || '（メモはありません）'}</p>
+                  </div>
+                  
+                  {/* ★ リアクションをメモの下に移動し、右寄せでスッキリと配置 */}
+                  <div className="flex justify-end mb-8">
+                    <ReactionBar targetType="pin" targetId={pin.pin_id} />
+                  </div>
+                  
+                  <div className="border-t border-slate-100 pt-6">
+                    <h4 className="font-bold text-slate-700 mb-4 text-sm flex items-center gap-2">
+                       <span className="bg-slate-100 p-1.5 rounded-lg text-xs">💬</span> コメント ({pinComments.length})
+                    </h4>
+                    <div className="space-y-4 mb-2">
+                      {pinComments.map(c => {
+                        const cAuthor = state.users.find(u => u.email === c.email) || {name: '不明'};
+                        return (
+                          <div key={c.chat_id} className="bg-slate-50 p-4 rounded-2xl text-sm border border-slate-100 flex flex-col items-start">
+                            <span className="font-bold text-slate-500 text-[11px] block mb-1">{cAuthor.name}</span>
+                            <span className="text-slate-800 font-medium block leading-relaxed">{c.message}</span>
+                            <div className="mt-2 scale-90 origin-left"><ReactionBar targetType="chat" targetId={c.chat_id} /></div>
+                          </div>
+                        );
+                      })}
+                      {pinComments.length === 0 && <p className="text-sm text-slate-400 text-center py-4 bg-slate-50 rounded-xl border border-dashed border-slate-200">まだコメントはありません。</p>}
+                    </div>
+                  </div>
+
+                  {isOwnerOrTeacher && (
+                    <div className="flex justify-end pt-6 mt-4 border-t border-slate-100">
+                      {!confirmDelete ? (
+                        <button onClick={() => setConfirmDelete(true)} className="text-rose-500 font-bold text-xs sm:text-sm bg-rose-50 px-4 py-2 rounded-full hover:bg-rose-100 transition flex items-center gap-1.5">
+                          <SvgIcon.Trash /> <RubyText text="削除" kana="さくじょ" />する
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-2 bg-rose-50 p-1.5 rounded-full border border-rose-100 animate-pop-in">
+                          <span className="text-xs font-bold text-rose-600 pl-3 pr-1"><RubyText text="本当" kana="ほんとう" />に<RubyText text="消" kana="け" />す？</span>
+                          <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 bg-white text-slate-600 border border-slate-200 rounded-full text-xs font-bold hover:bg-slate-50">やめる</button>
+                          <button onClick={handleDelete} disabled={isDeleting} className="px-4 py-1.5 bg-rose-500 text-white rounded-full text-xs font-bold shadow-sm hover:bg-rose-600">はい</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+              
+              <div className="p-4 sm:p-5 border-t border-slate-200 bg-surface shrink-0 flex gap-2">
+                <input type="text" value={comment} onChange={e=>setComment(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSendComment()} placeholder="コメントをかく..." className="flex-1 bg-white border border-slate-200 rounded-full px-5 py-3 outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 font-medium text-sm transition shadow-sm" />
+                <button onClick={handleSendComment} className="bg-brand-500 text-white w-12 h-12 rounded-full flex items-center justify-center shadow-md hover:bg-brand-600 transition shrink-0"><SvgIcon.Send /></button>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const PinIcon = ({ color, onClick, isNew }) => {
+        const isEmoji = !color.startsWith('#');
+        return (
+          <div onClick={onClick} className={`pin-element absolute -translate-x-1/2 -translate-y-full cursor-pointer flex items-end justify-center transition-transform duration-200 ${isNew ? 'animate-pop-in' : 'hover:scale-110 hover:-translate-y-full active:scale-95'} drop-shadow-xl hover:drop-shadow-2xl z-10`} style={{ width: '52px', height: '52px', pointerEvents: 'auto', color: isEmoji ? '#333' : color }}>
+            {isEmoji ? (
+              <div className="w-11 h-11 bg-white rounded-full shadow-md border-2 border-slate-200 flex items-center justify-center text-xl mb-1.5 relative">
+                <span className="translate-y-[1px]">{color}</span>
+                <div className="absolute -bottom-[9px] left-1/2 -translate-x-1/2 w-0 h-0 border-l-[7px] border-r-[7px] border-t-[10px] border-l-transparent border-r-transparent border-t-slate-200"></div>
+                <div className="absolute -bottom-[6px] left-1/2 -translate-x-1/2 w-0 h-0 border-l-[5px] border-r-[5px] border-t-[8px] border-l-transparent border-r-transparent border-t-white"></div>
+              </div>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="currentColor" className="w-full h-full stroke-white stroke-[2px]">
+                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+              </svg>
+            )}
+          </div>
+        );
+      };
+
+      const ChatPanel = ({ isOpen, onClose }) => {
+        const { state, showToast, dispatch } = useContext(AppContext);
+        const [msg, setMsg] = useState('');
+        const [replyTo, setReplyTo] = useState(null);
+        const endRef = useRef(null);
+
+        useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [state.chats, isOpen]);
+
+        const handleSend = async () => {
+          if(!msg.trim()) return;
+          const payload = { action: 'save_chat', chat_id: `c_${Date.now()}`, unit_id: state.activeUnit.unit_id, email: state.user.email, message: msg, target_type: replyTo ? 'chat' : 'general', target_id: replyTo ? replyTo.chat_id : '' };
+          setMsg(''); setReplyTo(null);
+          
+          dispatch(p => ({...p, chats: [...p.chats, payload]}));
+          try { await runGas('executeAction', JSON.stringify(payload)); } 
+          catch(e) { dispatch(p => ({...p, chats: p.chats.filter(c => c.chat_id !== payload.chat_id)})); showToast(<span><RubyText text="送信失敗" kana="そうしんしっぱい" /></span>,'error'); }
+        };
+
+        if(!isOpen) return null;
+        const isChatEnabled = state.activeUnit?.chat_enabled;
+
+        return (
+          <div className="absolute right-0 top-0 bottom-0 w-full md:w-96 bg-white/95 backdrop-blur-xl border-l border-white/40 shadow-[-10px_0_30px_rgba(0,0,0,0.05)] flex flex-col z-40 animate-slide-in-right"
+               onPointerDown={e=>e.stopPropagation()} onPointerUp={e=>e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center shrink-0 bg-white/50">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                <span className="bg-brand-50 text-brand-600 p-1.5 rounded-lg text-sm">💬</span>
+                みんなのひろば
+              </h3>
+              <button onClick={onClose} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-2 rounded-full transition"><SvgIcon.Close /></button>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5 custom-scrollbar">
+              {state.chats.map(c => {
+                const isMe = c.email === state.user.email;
+                const author = state.users.find(u => u.email === c.email) || {name: '不明', group_id: '?'};
+                let pinContext = null;
+                if(c.target_type === 'pin') {
+                  const targetPin = state.pins.find(p => p.pin_id === c.target_id);
+                  pinContext = targetPin ? <span>📍 {targetPin.title} へのコメント</span> : <span>📍 <RubyText text="削除" kana="さくじょ" />されたピンへのコメント</span>;
+                }
+                let replyContext = null;
+                if(c.target_type === 'chat') {
+                  const targetChat = state.chats.find(x => x.chat_id === c.target_id);
+                  const tAuthor = targetChat ? (state.users.find(u => u.email === targetChat.email)?.name || '誰か') : '誰か';
+                  replyContext = <span>↩️ {tAuthor}さんへの<RubyText text="返信" kana="へんしん" /></span>;
+                }
+
+                return (
+                  <div key={c.chat_id} className={`flex flex-col group ${isMe ? 'items-end' : 'items-start'}`}>
+                    <span className="text-[10px] text-slate-400 mb-1 font-bold">{author.name} ({author.group_id})</span>
+                    {(pinContext || replyContext) && (
+                      <div className={`text-[10px] font-bold mb-1 px-2.5 py-1 rounded-full border ${isMe ? 'bg-brand-50 border-brand-100 text-brand-700' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
+                        {pinContext || replyContext}
+                      </div>
+                    )}
+                    <div className={`flex flex-col gap-1.5 ${isMe ? 'items-end' : 'items-start'}`}>
+                      <div className="flex items-end gap-2">
+                        {isMe && <button onClick={()=>setReplyTo(c)} className="opacity-0 group-hover:opacity-100 text-xs font-bold text-slate-400 hover:text-brand-500 transition"><RubyText text="返信" kana="へんしん" /></button>}
+                        <div className={`px-4 py-2.5 rounded-[20px] max-w-[240px] break-words shadow-sm font-medium text-[13px] leading-relaxed ${isMe ? 'bg-brand-500 text-white rounded-tr-sm' : 'bg-white border border-slate-200 text-slate-800 rounded-tl-sm'}`}>
+                          {c.message}
+                        </div>
+                        {!isMe && isChatEnabled && <button onClick={()=>setReplyTo(c)} className="opacity-0 group-hover:opacity-100 text-xs font-bold text-slate-400 hover:text-brand-500 transition"><RubyText text="返信" kana="へんしん" /></button>}
+                      </div>
+                      <div className={`scale-[0.85] origin-top ${isMe ? 'origin-right' : 'origin-left'}`}><ReactionBar targetType="chat" targetId={c.chat_id} /></div>
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={endRef} />
+            </div>
+
+            {isChatEnabled || state.user.role === 'teacher' ? (
+              <div className="p-4 bg-surface border-t border-slate-200 shrink-0 flex flex-col gap-2 relative">
+                {replyTo && (
+                  <div className="flex justify-between items-center bg-white border border-slate-200 px-3 py-2 rounded-xl text-xs font-bold text-slate-600 shadow-sm animate-pop-in">
+                    <span>↩️ {(state.users.find(u=>u.email===replyTo.email)?.name || '誰か')} に<RubyText text="返信" kana="へんしん" />中</span>
+                    <button onClick={()=>setReplyTo(null)} className="hover:text-rose-500 bg-slate-50 rounded-full p-1"><SvgIcon.Close /></button>
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <input type="text" value={msg} onChange={e=>setMsg(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSend()} placeholder="メッセージ..." className="flex-1 bg-white border border-slate-200 rounded-full px-5 py-3 outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 font-medium text-sm shadow-sm transition" />
+                  <button onClick={handleSend} className="bg-brand-500 text-white w-12 h-12 rounded-full flex items-center justify-center shadow-md hover:bg-brand-600 transition shrink-0"><SvgIcon.Send /></button>
+                </div>
+              </div>
+            ) : (
+              <div className="p-5 bg-slate-100 border-t border-slate-200 shrink-0 text-center">
+                <span className="text-sm font-bold text-slate-500"><span><RubyText text="現在" kana="げんざい" /></span>、チャットはオフになっています🔇</span>
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const MapArea = () => {
+        const { state, dispatch, showToast } = useContext(AppContext);
+        const [pan, setPan] = useState({ x: 0, y: 0, scale: 1 });
+        const [creatingPos, setCreatingPos] = useState(null);
+        const [selectedPin, setSelectedPin] = useState(null);
+        const [mode, setMode] = useState(state.user.role === 'teacher' ? 'view' : 'edit'); 
+        
+        const [isDrawing, setIsDrawing] = useState(false);
+        const [lassoPoints, setLassoPoints] = useState([]);
+        const [areaPins, setAreaPins] = useState(null);
+        
+        const mapRef = useRef(null);
+        const containerRef = useRef(null); 
+        const isDragging = useRef(false);
+        const startPos = useRef({x: 0, y: 0, mouseX: 0, mouseY: 0});
+
+        const maps = state.activeUnit?.maps || [];
+        const currentMapInfo = maps.find(m => m.id === state.activeMapId) || maps[0];
+
+        const visiblePins = state.pins.filter(p => {
+          if(p.map_id !== state.activeMapId) return false;
+          if(state.filter.scope === 'mine' && p.email !== state.user.email) return false;
+          if(state.filter.scope === 'group' && state.users.find(u=>u.email === p.email)?.group_id !== state.user.group_id) return false;
+          if(state.filter.color !== 'all' && p.color !== state.filter.color) return false;
+          return true;
+        });
+
+        const getPos = (e) => {
+          if(!mapRef.current) return null;
+          const r = mapRef.current.getBoundingClientRect();
+          if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return null;
+          return { x: ((e.clientX - r.left) / r.width) * 100, y: ((e.clientY - r.top) / r.height) * 100 };
+        };
+
+        const onPointerDown = (e) => {
+          if(e.target.closest('button') || e.target.closest('.pin-element')) return;
+          e.currentTarget.setPointerCapture(e.pointerId);
+
+          if (mode === 'lasso') {
+            setIsDrawing(true);
+            const pos = getPos(e);
+            if(pos) setLassoPoints([pos]);
+          } else {
+            isDragging.current = false;
+            startPos.current = { x: pan.x, y: pan.y, mouseX: e.clientX, mouseY: e.clientY };
+            if(containerRef.current) containerRef.current.style.transition = 'none'; 
+          }
+        };
+
+        const onPointerMove = (e) => {
+          if(!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+          
+          if (mode === 'lasso') {
+            if (isDrawing) {
+              const pos = getPos(e);
+              if(pos) setLassoPoints(prev => [...prev, pos]);
+            }
+          } else {
+            const dx = e.clientX - startPos.current.mouseX;
+            const dy = e.clientY - startPos.current.mouseY;
+            if (!isDragging.current && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) isDragging.current = true;
+            if (isDragging.current && containerRef.current) {
+               containerRef.current.style.transform = `translate3d(${startPos.current.x + dx}px, ${startPos.current.y + dy}px, 0) scale(${pan.scale})`;
+            }
+          }
+        };
+
+        const onPointerUp = (e) => {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+          
+          if (mode === 'lasso') {
+            if (isDrawing) {
+              setIsDrawing(false);
+              if (lassoPoints.length > 5) {
+                const containedPins = visiblePins.filter(p => isPointInPolygon({x: p.x, y: p.y}, lassoPoints));
+                if (containedPins.length > 0) {
+                  setAreaPins(containedPins);
+                } else {
+                  showToast(<span>かこんだ<RubyText text="中" kana="なか" />にピンはありませんでした</span>, 'error');
+                }
+              }
+              setLassoPoints([]);
+            }
+          } else {
+            if(containerRef.current) containerRef.current.style.transition = 'transform 0.1s ease-out'; 
+            
+            if (isDragging.current) {
+              const dx = e.clientX - startPos.current.mouseX;
+              const dy = e.clientY - startPos.current.mouseY;
+              setPan(p => ({...p, x: startPos.current.x + dx, y: startPos.current.y + dy}));
+            } else {
+              if (mode === 'edit' && state.user.role !== 'teacher') {
+                const pos = getPos(e);
+                if(pos) setCreatingPos(pos);
+              }
+            }
+            isDragging.current = false;
+          }
+        };
+
+        const handleZoom = (amount) => setPan(p=>({...p, scale: Math.max(Math.min(p.scale + amount, 4), 1)}));
+
+        const url = currentMapInfo?.url || '';
+
+        return (
+          <div className={`flex-1 relative overflow-hidden bg-slate-100 flex items-center justify-center ${mode === 'lasso' ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'}`}
+               onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
+            
+            {maps.length > 0 && (
+              <div className="absolute top-5 left-1/2 -translate-x-1/2 z-overlay flex gap-1.5 p-1.5 bg-white/80 backdrop-blur-lg rounded-full shadow-float border border-white/60 animate-pop-in max-w-[95vw] overflow-x-auto custom-scrollbar">
+                {maps.map(m => (
+                   <button key={m.id} onClick={(e)=>{e.stopPropagation(); dispatch(p=>({...p, activeMapId: m.id}));}}
+                           className={`px-6 py-2.5 rounded-full font-bold text-[13px] whitespace-nowrap transition-all ${state.activeMapId === m.id ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-white hover:text-slate-800'}`}>
+                     {m.name}
+                   </button>
+                ))}
+              </div>
+            )}
+
+            {mode === 'lasso' && (
+              <div className="absolute top-24 left-1/2 -translate-x-1/2 z-overlay pointer-events-none animate-pop-in">
+                <span className="bg-brand-500 text-white px-6 py-3 rounded-full font-bold shadow-float animate-pulse flex items-center gap-2 border-[3px] border-white text-sm">
+                  <span>✏️</span>
+                  <span><RubyText text="地図" kana="ちず" />をなぞって かこんでね！</span>
+                </span>
+              </div>
+            )}
+
+            <div className="absolute bottom-8 sm:bottom-10 left-1/2 -translate-x-1/2 z-overlay bg-white/90 backdrop-blur-xl p-2 rounded-full shadow-float border border-white flex gap-1.5 print-hidden">
+              <button onClick={(e)=>{ e.stopPropagation(); setMode('view'); }} className={`px-5 py-3 sm:px-7 sm:py-3.5 rounded-full font-bold text-xs sm:text-sm transition-all flex items-center gap-2 ${mode==='view' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'}`}>
+                <span className="text-base sm:text-lg shrink-0">👀</span>
+                <span className="inline-block mt-1">さわる・<RubyText text="見" kana="み" />る</span>
+              </button>
+              
+              <button onClick={(e)=>{ e.stopPropagation(); setMode('lasso'); }} className={`px-5 py-3 sm:px-7 sm:py-3.5 rounded-full font-bold text-xs sm:text-sm transition-all flex items-center gap-2 ${mode==='lasso' ? 'bg-brand-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100 hover:text-brand-600'}`}>
+                <span className="text-base sm:text-lg shrink-0">✏️</span>
+                <span className="inline-block mt-1">かこんで<RubyText text="見" kana="み" />る</span>
+              </button>
+
+              {state.user.role !== 'teacher' && (
+                <button onClick={(e)=>{ e.stopPropagation(); setMode('edit'); }} className={`px-5 py-3 sm:px-7 sm:py-3.5 rounded-full font-bold text-xs sm:text-sm transition-all flex items-center gap-2 ${mode==='edit' ? 'bg-accent-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100 hover:text-accent-600'}`}>
+                  <span className="text-base sm:text-lg shrink-0">📍</span>
+                  <span className="inline-block mt-1">ピンをさす</span>
+                </button>
+              )}
+            </div>
+
+            <div className="absolute bottom-8 left-6 z-overlay flex flex-col gap-2">
+              <div className="flex flex-col bg-white/90 backdrop-blur-md rounded-full shadow-float border border-white p-1">
+                <button onClick={()=>handleZoom(0.5)} className="w-11 h-11 bg-transparent rounded-full font-bold text-xl text-slate-600 hover:bg-slate-100 transition">+</button>
+                <div className="w-full h-px bg-slate-200"></div>
+                <button onClick={()=>handleZoom(-0.5)} className="w-11 h-11 bg-transparent rounded-full font-bold text-xl text-slate-600 hover:bg-slate-100 transition">-</button>
+              </div>
+              <button onClick={()=>setPan({scale:1,x:0,y:0})} className="w-[52px] h-[52px] mt-2 bg-slate-800 text-white rounded-full shadow-float font-bold text-[11px] hover:bg-black transition"><RubyText text="戻" kana="もど" />す</button>
+            </div>
+
+            <div ref={containerRef} className="smooth-map-container relative shadow-[0_20px_50px_-12px_rgba(0,0,0,0.15)] rounded-3xl border-[6px] border-white bg-white transition-transform duration-100 ease-out"
+                 style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${pan.scale})`, width: 'fit-content', height: 'fit-content' }}>
+              
+              {url ? <img ref={mapRef} src={url.includes('drive')?url:`https://drive.google.com/thumbnail?sz=w1500&id=${url.match(/id=([^&]+)/)?.[1]||url}`} style={{ maxWidth: '85vw', maxHeight: '75vh', width: 'auto', height: 'auto' }} className="block pointer-events-none rounded-2xl" draggable="false" /> 
+                   : <div className="w-[60vw] h-[60vh] max-w-2xl max-h-2xl flex items-center justify-center text-slate-400 font-bold bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
+                       <div className="text-center">
+                         <span className="text-6xl block mb-4">🗺️</span>
+                         <span><RubyText text="先生" kana="せんせい" />が<RubyText text="地図" kana="ちず" />を<RubyText text="設定" kana="せってい" />するのを<RubyText text="待" kana="ま" />ってね</span>
+                       </div>
+                     </div>}
+              
+              {mode === 'lasso' && lassoPoints.length > 0 && (
+                <svg className="absolute inset-0 w-full h-full pointer-events-none rounded-2xl" style={{zIndex: 900}} viewBox="0 0 100 100" preserveAspectRatio="none">
+                  <path d={'M ' + lassoPoints.map(p => `${p.x} ${p.y}`).join(' L ')} stroke="#0ea5e9" strokeWidth="0.6" strokeDasharray="1,1" fill="rgba(14, 165, 233, 0.15)" vectorEffect="non-scaling-stroke" />
+                </svg>
+              )}
+
+              {visiblePins.map(pin => (
+                <div key={pin.pin_id} className="absolute" style={{ left: `${pin.x}%`, top: `${pin.y}%` }}>
+                  <PinIcon color={pin.color} onClick={(e) => { 
+                    e.stopPropagation(); 
+                    if(mode === 'view' || state.user.role === 'teacher') setSelectedPin(pin); 
+                  }} />
+                </div>
+              ))}
+              {creatingPos && <div className="absolute z-50" style={{ left: `${creatingPos.x}%`, top: `${creatingPos.y}%` }}><PinIcon color="#999" isNew /></div>}
+            </div>
+
+            {creatingPos && <PinCreateModal pos={creatingPos} onClose={()=>setCreatingPos(null)} />}
+            {selectedPin && <PinDetailModal pin={selectedPin} onClose={() => setSelectedPin(null)} />}
+            {areaPins && <PinListModal pins={areaPins} onClose={() => setAreaPins(null)} onSelectPin={(pin) => { setAreaPins(null); setSelectedPin(pin); }} />}
+          </div>
+        );
+      };
+
+      const MainApp = () => {
+        const [state, dispatch] = useState({ user: null, users: [], activeUnit: null, activeMapId: null, pins: [], chats: [], reactions: [], filter: { scope: 'all', color: 'all' }, driveImages: null, hasApiKey: false });
+        const [sysState, setSysState] = useState({ loading: true, error: null, toast: null });
+        const [uiState, setUiState] = useState({ chatOpen: false, teacherOpen: false });
+
+        const showToast = useCallback((msg, type='success') => setSysState(p=>({...p, toast: {msg, type}})), []);
+
+        const initLoad = async () => {
+          try {
+            const res = await runGas('getInitData');
+            if(res.status === 'unregistered') {
+              setSysState(p=>({...p, loading: false, error: 'unregistered'}));
+            } else if (res.status === 'success') {
+              dispatch(p => ({ 
+                ...p, user: res.user, users: res.users, activeUnit: res.activeUnit, 
+                activeMapId: res.activeUnit?.maps[0]?.id || null, 
+                pins: res.pins, chats: res.chats, reactions: res.reactions || [], hasApiKey: res.hasApiKey 
+              }));
+              setSysState(p=>({...p, loading: false}));
+            } else throw new Error(res.message);
+          } catch(e) { setSysState(p=>({...p, loading: false, error: <span><RubyText text="通信" kana="つうしん" />エラー。<RubyText text="再読" kana="さいよ" />み<RubyText text="込" kana="こ" />みしてください。</span>})); }
+        };
+
+        useEffect(() => {
+          initLoad();
+          const timer = setInterval(async () => {
+            if(!state.activeUnit) return;
+            try {
+              const res = await runGas('syncData', state.activeUnit.unit_id);
+              if(res.status === 'success') {
+                dispatch(p => {
+                   const newUnit = res.activeUnit || p.activeUnit;
+                   const mapId = p.activeMapId || newUnit?.maps[0]?.id;
+                   return { ...p, pins: res.pins, chats: res.chats, reactions: res.reactions || [], activeUnit: newUnit, activeMapId: mapId, hasApiKey: res.hasApiKey !== undefined ? res.hasApiKey : p.hasApiKey };
+                });
+              }
+            } catch(e) {}
+          }, 10000);
+          return () => clearInterval(timer);
+        }, [state.activeUnit?.unit_id]);
+
+        if (sysState.loading) return <LoadingOverlay />;
+        if (sysState.error === 'unregistered') return (
+          <div className="h-screen flex items-center justify-center bg-surface p-4">
+            <div className="bg-white p-12 rounded-[32px] shadow-float text-center max-w-md w-full border-t-[10px] border-brand-500 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-32 bg-brand-50/50"></div>
+              <span className="text-7xl block mb-6 relative z-10 drop-shadow-sm">🏫</span>
+              <h1 className="text-2xl font-extrabold text-slate-800 mb-4 relative z-10 tracking-tight">まだ <RubyText text="登録" kana="とうろく" />されていません</h1>
+              <p className="text-slate-500 font-medium text-sm leading-relaxed relative z-10 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <span><RubyText text="先生" kana="せんせい" />に メールアドレスを<RubyText text="登録" kana="とうろく" />してもらってから、もう<RubyText text="一度" kana="いちど" /> ひらいてね！</span>
+              </p>
+            </div>
+          </div>
+        );
+        if (sysState.error) return <div className="h-screen flex items-center justify-center font-bold text-rose-500 bg-surface">{sysState.error}</div>;
+
+        return (
+          <AppContext.Provider value={{ state, dispatch, showToast }}>
+            <div className="h-screen w-full flex flex-col bg-surface overflow-hidden">
+              
+              <header className="flex-none h-16 bg-white/90 backdrop-blur-md z-50 px-4 md:px-6 flex justify-between items-center border-b border-slate-200/60 shadow-sm">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl bg-brand-50 p-1.5 rounded-xl shadow-inner-soft border border-brand-100">🗺️</span>
+                  <h1 className="text-xl font-extrabold text-slate-800 tracking-tight hidden sm:block">みっけ！</h1>
+                </div>
+
+                {state.user.role !== 'teacher' && (
+                  <div className="flex bg-slate-100/80 p-1 shadow-inner-soft border border-slate-200/80 rounded-full">
+                    <button onClick={()=>dispatch(p=>({...p, filter:{...p.filter, scope:'all'}}))} className={`px-4 sm:px-5 py-1.5 rounded-full text-xs sm:text-sm font-bold transition-all ${state.filter.scope==='all'?'bg-white shadow-sm text-brand-600':'text-slate-500 hover:text-slate-700'}`}>みんな</button>
+                    <button onClick={()=>dispatch(p=>({...p, filter:{...p.filter, scope:'group'}}))} className={`px-4 sm:px-5 py-1.5 rounded-full text-xs sm:text-sm font-bold transition-all ${state.filter.scope==='group'?'bg-white shadow-sm text-brand-600':'text-slate-500 hover:text-slate-700'}`}>
+                      <span className="mt-0.5 inline-block">じぶんの<RubyText text="班" kana="はん" /></span>
+                    </button>
+                    <button onClick={()=>dispatch(p=>({...p, filter:{...p.filter, scope:'mine'}}))} className={`px-4 sm:px-5 py-1.5 rounded-full text-xs sm:text-sm font-bold transition-all ${state.filter.scope==='mine'?'bg-white shadow-sm text-brand-600':'text-slate-500 hover:text-slate-700'}`}>じぶん</button>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-4 sm:gap-5">
+                  <div className="text-right hidden md:block">
+                    <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{state.user.group_id}</div>
+                    <div className="font-extrabold text-slate-700 text-sm">{state.user.name} <span className="text-[10px] font-normal text-slate-500">さん</span></div>
+                  </div>
+                  <button onClick={()=>setUiState(p=>({...p, chatOpen: !p.chatOpen}))} className="relative bg-slate-50 p-2.5 rounded-full shadow-sm hover:shadow-md border border-slate-200 transition text-lg">
+                    💬 <span className="absolute -top-1.5 -right-1.5 bg-accent-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full shadow-sm border-2 border-white">{state.chats.length}</span>
+                  </button>
+                  {state.user.role === 'teacher' && (
+                    <button onClick={()=>setUiState(p=>({...p, teacherOpen: true}))} className="bg-slate-800 text-white px-5 py-2.5 rounded-full font-bold text-xs shadow-md hover:bg-black transition">管理パネル</button>
+                  )}
+                </div>
+              </header>
+
+              <div className="flex-1 relative flex overflow-hidden">
+                <MapArea />
+                <ChatPanel isOpen={uiState.chatOpen} onClose={()=>setUiState(p=>({...p, chatOpen: false}))} />
+              </div>
+
+              <footer className="flex-none h-10 flex justify-center items-center bg-white border-t border-slate-200 text-[10px] sm:text-xs text-slate-400 font-bold z-50 tracking-wider">
+                © 2026 みっけ！ <a href="https://note.com/cute_borage86" target="_blank" className="ml-1.5 text-slate-500 hover:text-brand-500 transition">GIGA山</a>
+              </footer>
+
+              {uiState.teacherOpen && <TeacherConsole onClose={()=>setUiState(p=>({...p, teacherOpen: false}))} />}
+              <Toast msg={sysState.toast?.msg} type={sysState.toast?.type} onHide={()=>setSysState(p=>({...p, toast: null}))} />
+            </div>
+          </AppContext.Provider>
+        );
+      };
+
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(<MainApp />);
+    </script>
+  </body>
 </html>
