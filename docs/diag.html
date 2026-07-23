@@ -35,12 +35,16 @@
 
   <div class="frames">
     <div class="framebox">
-      <p>テストA: Cookieなし（credentialless）で読み込んだ児童用アプリ</p>
+      <p>テストA: 素のURL（パラメータなし・Cookieなし）＝新方式</p>
       <iframe id="frameA" allow="clipboard-read; clipboard-write"></iframe>
     </div>
     <div class="framebox">
-      <p>テストB: 通常の iframe（ログイン中アカウントの Cookie 付き）で読み込んだ児童用アプリ</p>
+      <p>テストB: クラスコード付きURL（Cookieなし）＝旧方式</p>
       <iframe id="frameB" allow="clipboard-read; clipboard-write"></iframe>
+    </div>
+    <div class="framebox">
+      <p>テストC: クラスコード付きURL（通常・Cookieあり）</p>
+      <iframe id="frameC" allow="clipboard-read; clipboard-write"></iframe>
     </div>
   </div>
 
@@ -145,47 +149,52 @@
     setStep('cred', credSupported ? 'ok' : 'ng', 'Cookieなし読込(credentialless)への対応',
       credSupported ? 'このブラウザは対応しています' : '非対応ブラウザです（テストAは通常読込と同じになります）');
 
-    // ── 4. iframe 読み込みテスト（A: credentialless / B: 通常） ──
-    var frameUrl = CFG.execUrlS + (CFG.execUrlS.indexOf('?') >= 0 ? '&' : '?') + 'mode=student&c=' + encodeURIComponent(classCode);
-    var frameA = document.getElementById('frameA');
-    var frameB = document.getElementById('frameB');
-    try { frameA.setAttribute('credentialless', ''); } catch (e) {}
-
+    // ── 4. iframe 読み込みテスト ──
+    //  A: 素URL + credentialless（新方式。クラスコードはハンドシェイクで渡す）
+    //  B: パラメータ付きURL + credentialless（旧方式）
+    //  C: パラメータ付きURL + 通常iframe（Cookieあり）
+    var bareUrl = CFG.execUrlS;
+    var paramUrl = CFG.execUrlS + (CFG.execUrlS.indexOf('?') >= 0 ? '&' : '?') + 'mode=student&c=' + encodeURIComponent(classCode);
+    var TESTS = {
+      A: { url: bareUrl, name: 'テストA: 素のURL(パラメータなし・Cookieなし)', cred: true,
+           hint: 'GAS側の App.html が最新でない場合、枠内にアプリが見えていてもNG表示になります' },
+      B: { url: paramUrl, name: 'テストB: クラスコード付きURL(Cookieなし)', cred: true, hint: '' },
+      C: { url: paramUrl, name: 'テストC: クラスコード付きURL(Cookieあり)', cred: false, hint: '' }
+    };
     var t0 = Date.now();
-    var done = { A: false, B: false };
+    var done = {};
+    var frames = {};
 
-    function armTimeout(key, name) {
+    Object.keys(TESTS).forEach(function (key) {
+      var t = TESTS[key];
+      var f = document.getElementById('frame' + key);
+      frames[key] = f;
+      if (t.cred) { try { f.setAttribute('credentialless', ''); } catch (e) {} }
+      setStep('frame' + key, 'wait', t.name, '読み込み中...');
+      f.src = t.url;
       setTimeout(function () {
         if (!done[key]) {
           done[key] = true;
-          setStep('frame' + key, 'ng', name,
-            TIMEOUT_MS / 1000 + '秒待ちましたがアプリから応答がありません。上の枠内に「ファイルを開くことができません」等が出ていないか確認してください');
+          setStep('frame' + key, 'ng', t.name,
+            TIMEOUT_MS / 1000 + '秒待ちましたがアプリから応答がありません。枠内の表示（「ファイルを開くことができません」かどうか）を確認してください。' + (t.hint || ''));
         }
       }, TIMEOUT_MS);
-    }
+    });
 
     window.addEventListener('message', function (ev) {
       var d = ev.data || {};
-      if (d.type !== 'app:ready') return;
+      if (d.type !== 'app:ready' && d.type !== 'app:loaded') return;
       var okOrigin = ev.origin === 'https://script.google.com' ||
         /^https:\/\/[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)*\.googleusercontent\.com$/i.test(ev.origin);
       if (!okOrigin) return;
       var ms = (Date.now() - t0);
-      if (!done.A && frameA.contentWindow && ev.source === frameA.contentWindow) {
-        done.A = true;
-        setStep('frameA', 'ok', 'テストA: Cookieなしで児童用アプリ読込', ms + 'ms で応答（正常）');
-      } else if (!done.B && frameB.contentWindow && ev.source === frameB.contentWindow) {
-        done.B = true;
-        setStep('frameB', 'ok', 'テストB: 通常(Cookieあり)で児童用アプリ読込', ms + 'ms で応答（正常）');
-      }
+      Object.keys(TESTS).forEach(function (key) {
+        if (!done[key] && frames[key].contentWindow && ev.source === frames[key].contentWindow) {
+          done[key] = true;
+          setStep('frame' + key, 'ok', TESTS[key].name, ms + 'ms で応答（正常・' + d.type + (d.mode ? '/' + d.mode : '') + '）');
+        }
+      });
     });
-
-    setStep('frameA', 'wait', 'テストA: Cookieなしで児童用アプリ読込', '読み込み中...');
-    setStep('frameB', 'wait', 'テストB: 通常(Cookieあり)で児童用アプリ読込', '読み込み中...');
-    frameA.src = frameUrl;
-    frameB.src = frameUrl;
-    armTimeout('A', 'テストA: Cookieなしで児童用アプリ読込');
-    armTimeout('B', 'テストB: 通常(Cookieあり)で児童用アプリ読込');
 
     // ── 5. GIS（サインイン部品）読み込み ──
     setStep('gis', 'wait', 'Google サインイン部品(GIS)の読み込み', '...');

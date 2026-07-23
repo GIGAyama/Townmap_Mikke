@@ -75,7 +75,7 @@
         <p class="note" id="login-note">学校の Google アカウントでサインインしてください。パスワードがこのアプリに渡ることはありません。</p>
       </div>
       <div id="gate-fallback" class="hidden">
-        <p>うまくつながらないみたい…<br>べつのタブで一度ひらいてから、この画面にもどってきてね。</p>
+        <p>うまくつながらないみたい…<br>下のボタンでひらくと、ひらいた<strong>先のタブでそのまま</strong>つかえるよ。<br>（この画面はとじないでね）</p>
         <button class="btn" id="open-newtab">べつのタブでひらく</button>
         <p class="note" id="fallback-url" style="margin-top:16px; word-break:break-all;"></p>
       </div>
@@ -103,7 +103,7 @@
     'use strict';
     var CFG = window.APP_CONFIG || {};
     var TOKEN_KEY = 'mikke_id_token'; // sessionStorage のみ（localStorage には置かない）
-    var READY_TIMEOUT_MS = 15000;
+    var READY_TIMEOUT_MS = 12000;
 
     // ── ルーティング: ?c= の有無で教員 / 児童を出し分け ──
     var params = new URLSearchParams(location.search);
@@ -219,16 +219,18 @@
     }
 
     // ── iframe 起動 ──
+    // 児童モードは「素の exec URL」を優先する。クラスコード付き URL
+    // (?mode=student&c=…) の iframe 読み込みを Google 側が拒否する環境が
+    // 確認されているため、クラスコードは URL ではなく app:idToken メッセージで渡す。
+    // 素 URL で応答が無い場合のみ、旧方式（パラメータ付き）を一度だけ試す。
+    var frameVariant = 0; // 0: 素URL（新方式） / 1: パラメータ付き（旧方式フォールバック）
     function frameUrl() {
-      var base, query;
       if (mode === 'student') {
-        base = CFG.execUrlS;
-        query = 'mode=student&c=' + encodeURIComponent(classCode);
-      } else {
-        base = CFG.execUrlT;
-        query = 'portal=1';
+        if (frameVariant === 0) return CFG.execUrlS;
+        return CFG.execUrlS + (CFG.execUrlS.indexOf('?') >= 0 ? '&' : '?') +
+          'mode=student&c=' + encodeURIComponent(classCode);
       }
-      return base + (base.indexOf('?') >= 0 ? '&' : '?') + query;
+      return CFG.execUrlT + (CFG.execUrlT.indexOf('?') >= 0 ? '&' : '?') + 'portal=1';
     }
 
     function bootFrame() {
@@ -252,18 +254,27 @@
     function armReadyTimeout() {
       clearTimeout(state.readyTimer);
       state.readyTimer = setTimeout(function () {
-        if (!state.appReady) {
-          // GAS 側のログイン画面は iframe に出せないため、別タブで開かせて戻す
-          gate.classList.remove('hidden');
-          show('gate-fallback');
-          // 診断用: どの URL への接続に失敗したかを表示する
-          el('fallback-url').textContent = '接続先: ' + frameUrl();
+        if (state.appReady) return;
+        if (mode === 'student' && frameVariant === 0) {
+          // 素 URL で応答なし → 旧方式（パラメータ付き）で一度だけ再試行
+          frameVariant = 1;
+          reloadFrame();
+          return;
         }
+        // GAS 側のログイン画面は iframe に出せないため、別タブで開かせて戻す
+        gate.classList.remove('hidden');
+        show('gate-fallback');
+        // 診断用: どの URL への接続に失敗したかを表示する
+        el('fallback-url').textContent = '接続先: ' + frameUrl();
       }, READY_TIMEOUT_MS);
     }
 
     el('open-newtab').addEventListener('click', function () {
-      window.open(frameUrl(), '_blank', 'noopener');
+      // noopener は付けない: 開いた先のアプリが window.opener（このシェル）へ
+      // app:ready を送り、シェルがトークンとクラスコードを渡す（iframe が使えない
+      // 環境でも、開いたタブ内でそのままアプリが使える）
+      frameVariant = 0;
+      window.open(frameUrl(), '_blank');
     });
     document.addEventListener('visibilitychange', function () {
       // 別タブから戻ってきたら iframe を貼り直して自動再試行
