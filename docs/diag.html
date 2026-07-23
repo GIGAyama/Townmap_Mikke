@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex" />
+  <title>みっけ！ 接続診断</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: sans-serif; background: #f8fafc; color: #334155; padding: 16px; line-height: 1.7; }
+    h1 { font-size: 20px; margin-bottom: 4px; }
+    .sub { font-size: 12px; color: #64748b; margin-bottom: 16px; }
+    .step { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 12px 14px; margin-bottom: 10px; font-size: 14px; }
+    .step .name { font-weight: 700; }
+    .step .detail { font-size: 12px; color: #64748b; word-break: break-all; }
+    .ok { border-left: 6px solid #10b981; }
+    .ng { border-left: 6px solid #f43f5e; }
+    .wait { border-left: 6px solid #f59e0b; }
+    .frames { display: flex; flex-direction: column; gap: 12px; margin: 16px 0; }
+    .framebox { background: #fff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 10px; }
+    .framebox p { font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+    iframe { width: 100%; height: 240px; border: 1px solid #cbd5e1; border-radius: 8px; background: #fff; }
+    button { font-family: inherit; font-weight: 700; font-size: 14px; padding: 12px 20px; border: 0; border-radius: 10px; cursor: pointer; margin: 4px 4px 4px 0; }
+    .primary { background: #0ea5e9; color: #fff; }
+    .danger { background: #f43f5e; color: #fff; }
+    .plain { background: #e2e8f0; color: #334155; }
+    #summary { background: #1e293b; color: #e2e8f0; border-radius: 12px; padding: 12px 14px; font-family: monospace; font-size: 11px; white-space: pre-wrap; word-break: break-all; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <h1>🔍 みっけ！ 接続診断</h1>
+  <p class="sub">このページを開くだけで、児童用アプリにつながらない原因を自動でしらべます。結果（下の黒い欄）をコピーして開発者に送ってください。</p>
+
+  <div id="steps"></div>
+
+  <div class="frames">
+    <div class="framebox">
+      <p>テストA: Cookieなし（credentialless）で読み込んだ児童用アプリ</p>
+      <iframe id="frameA" allow="clipboard-read; clipboard-write"></iframe>
+    </div>
+    <div class="framebox">
+      <p>テストB: 通常の iframe（ログイン中アカウントの Cookie 付き）で読み込んだ児童用アプリ</p>
+      <iframe id="frameB" allow="clipboard-read; clipboard-write"></iframe>
+    </div>
+  </div>
+
+  <button class="primary" id="copy">📋 結果をコピー</button>
+  <button class="danger" id="reset">🧹 キャッシュを全部消して再読み込み</button>
+  <button class="plain" onclick="location.reload()">🔄 もう一度診断</button>
+
+  <div id="summary">診断中...</div>
+
+  <script src="config.js"></script>
+  <script>
+  (function () {
+    'use strict';
+    var CFG = window.APP_CONFIG || {};
+    var TIMEOUT_MS = 15000;
+    var results = {};
+    var stepsEl = document.getElementById('steps');
+
+    var params = new URLSearchParams(location.search);
+    var classCode = String(params.get('c') || '').replace(/[^A-Z2-9]/gi, '').toUpperCase().slice(0, 16) || 'AAAAAAAA';
+
+    function setStep(id, status, name, detail) {
+      results[id] = { status: status, name: name, detail: detail || '' };
+      var div = document.getElementById('step-' + id);
+      if (!div) {
+        div = document.createElement('div');
+        div.id = 'step-' + id;
+        stepsEl.appendChild(div);
+      }
+      var mark = status === 'ok' ? '✅' : status === 'ng' ? '❌' : '⏳';
+      div.className = 'step ' + (status === 'ok' ? 'ok' : status === 'ng' ? 'ng' : 'wait');
+      div.innerHTML = '<span class="name">' + mark + ' ' + name + '</span><div class="detail">' + (detail || '') + '</div>';
+      renderSummary();
+    }
+
+    function renderSummary() {
+      var lines = ['--- みっけ！接続診断 ' + new Date().toISOString() + ' ---'];
+      lines.push('UA: ' + navigator.userAgent);
+      lines.push('URL: ' + location.href);
+      Object.keys(results).forEach(function (k) {
+        var r = results[k];
+        lines.push('[' + (r.status === 'ok' ? 'OK' : r.status === 'ng' ? 'NG' : '..') + '] ' + r.name + (r.detail ? ' | ' + r.detail : ''));
+      });
+      document.getElementById('summary').textContent = lines.join('\n');
+    }
+
+    document.getElementById('copy').addEventListener('click', function () {
+      var t = document.getElementById('summary').textContent;
+      (navigator.clipboard ? navigator.clipboard.writeText(t) : Promise.reject()).then(
+        function(){ alert('コピーしました'); },
+        function(){ prompt('コピーしてください', t); });
+    });
+
+    // 🧹 SW とキャッシュを完全に消す（古いシェルが配られ続ける問題の解消）
+    document.getElementById('reset').addEventListener('click', function () {
+      var jobs = [];
+      if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+        jobs.push(navigator.serviceWorker.getRegistrations().then(function (regs) {
+          return Promise.all(regs.map(function (r) { return r.unregister(); }));
+        }));
+      }
+      if (window.caches && caches.keys) {
+        jobs.push(caches.keys().then(function (keys) {
+          return Promise.all(keys.map(function (k) { return caches.delete(k); }));
+        }));
+      }
+      Promise.all(jobs).then(function () {
+        alert('キャッシュを削除しました。ページを再読み込みします。');
+        location.reload();
+      });
+    });
+
+    // ── 1. 設定 ──
+    if (CFG.execUrlS && CFG.googleClientId) {
+      setStep('config', 'ok', '設定ファイル(config.js)', 'execUrlS: ...' + CFG.execUrlS.slice(-20));
+    } else {
+      setStep('config', 'ng', '設定ファイル(config.js)', 'execUrlS または googleClientId が空です');
+      return;
+    }
+
+    // ── 2. シェルのバージョン（Service Worker / キャッシュ） ──
+    setStep('sw', 'wait', 'シェルのキャッシュ状態', '確認中...');
+    var swInfo = [];
+    var swJobs = [];
+    if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+      swJobs.push(navigator.serviceWorker.getRegistrations().then(function (regs) {
+        swInfo.push('SW登録数=' + regs.length);
+        swInfo.push('制御中=' + (navigator.serviceWorker.controller ? 'はい' : 'いいえ'));
+      }));
+    }
+    if (window.caches && caches.keys) {
+      swJobs.push(caches.keys().then(function (keys) { swInfo.push('キャッシュ=' + (keys.join(',') || 'なし')); }));
+    }
+    Promise.all(swJobs).then(function () {
+      var stale = swInfo.join(' / ').indexOf('mikke-shell-v1') >= 0 || swInfo.join(' / ').indexOf('mikke-shell-v2') >= 0;
+      setStep('sw', stale ? 'ng' : 'ok', 'シェルのキャッシュ状態',
+        swInfo.join(' / ') + (stale ? ' → 古いシェルが残っています。「キャッシュを全部消して再読み込み」を押してください' : ''));
+    }).catch(function (e) { setStep('sw', 'ok', 'シェルのキャッシュ状態', '確認不可: ' + e); });
+
+    // ── 3. credentialless 対応 ──
+    var credSupported = ('credentialless' in HTMLIFrameElement.prototype);
+    setStep('cred', credSupported ? 'ok' : 'ng', 'Cookieなし読込(credentialless)への対応',
+      credSupported ? 'このブラウザは対応しています' : '非対応ブラウザです（テストAは通常読込と同じになります）');
+
+    // ── 4. iframe 読み込みテスト（A: credentialless / B: 通常） ──
+    var frameUrl = CFG.execUrlS + (CFG.execUrlS.indexOf('?') >= 0 ? '&' : '?') + 'mode=student&c=' + encodeURIComponent(classCode);
+    var frameA = document.getElementById('frameA');
+    var frameB = document.getElementById('frameB');
+    try { frameA.setAttribute('credentialless', ''); } catch (e) {}
+
+    var t0 = Date.now();
+    var done = { A: false, B: false };
+
+    function armTimeout(key, name) {
+      setTimeout(function () {
+        if (!done[key]) {
+          done[key] = true;
+          setStep('frame' + key, 'ng', name,
+            TIMEOUT_MS / 1000 + '秒待ちましたがアプリから応答がありません。上の枠内に「ファイルを開くことができません」等が出ていないか確認してください');
+        }
+      }, TIMEOUT_MS);
+    }
+
+    window.addEventListener('message', function (ev) {
+      var d = ev.data || {};
+      if (d.type !== 'app:ready') return;
+      var okOrigin = ev.origin === 'https://script.google.com' ||
+        /^https:\/\/[a-z0-9][a-z0-9-]*(\.[a-z0-9][a-z0-9-]*)*\.googleusercontent\.com$/i.test(ev.origin);
+      if (!okOrigin) return;
+      var ms = (Date.now() - t0);
+      if (!done.A && frameA.contentWindow && ev.source === frameA.contentWindow) {
+        done.A = true;
+        setStep('frameA', 'ok', 'テストA: Cookieなしで児童用アプリ読込', ms + 'ms で応答（正常）');
+      } else if (!done.B && frameB.contentWindow && ev.source === frameB.contentWindow) {
+        done.B = true;
+        setStep('frameB', 'ok', 'テストB: 通常(Cookieあり)で児童用アプリ読込', ms + 'ms で応答（正常）');
+      }
+    });
+
+    setStep('frameA', 'wait', 'テストA: Cookieなしで児童用アプリ読込', '読み込み中...');
+    setStep('frameB', 'wait', 'テストB: 通常(Cookieあり)で児童用アプリ読込', '読み込み中...');
+    frameA.src = frameUrl;
+    frameB.src = frameUrl;
+    armTimeout('A', 'テストA: Cookieなしで児童用アプリ読込');
+    armTimeout('B', 'テストB: 通常(Cookieあり)で児童用アプリ読込');
+
+    // ── 5. GIS（サインイン部品）読み込み ──
+    setStep('gis', 'wait', 'Google サインイン部品(GIS)の読み込み', '...');
+    var s = document.createElement('script');
+    s.src = 'https://accounts.google.com/gsi/client';
+    s.async = true;
+    s.onload = function () { setStep('gis', 'ok', 'Google サインイン部品(GIS)の読み込み', '正常'); };
+    s.onerror = function () { setStep('gis', 'ng', 'Google サインイン部品(GIS)の読み込み', 'accounts.google.com に接続できません（フィルタリングの可能性）'); };
+    document.head.appendChild(s);
+  })();
+  </script>
+</body>
+</html>
