@@ -2406,17 +2406,27 @@ var qrcode = function() {
       // ID トークンの真正性はサーバー側検証が最終防衛線（Auth.gs）。
       const Bridge = {
         token: null,
+        classCode: '',
         waiters: [],
         _post(msg) {
           const target = BOOT.shellOrigin || '*';
           try { window.parent.postMessage(msg, target); } catch (e) {}
           try { if (window.top && window.top !== window.parent) window.top.postMessage(msg, target); } catch (e) {}
+          // 「べつのタブでひらく」動線: シェルが window.open で開いた場合は opener がシェル
+          try { if (window.opener) window.opener.postMessage(msg, target); } catch (e) {}
         },
         init() {
+          if (this._inited) return;
+          this._inited = true;
           window.addEventListener('message', (ev) => {
             if (BOOT.shellOrigin && ev.origin !== BOOT.shellOrigin) return;
             const d = ev.data || {};
             if (d.type === 'app:idToken' && typeof d.idToken === 'string' && d.idToken) {
+              // クラスコードは URL パラメータではなくハンドシェイクで受け取る
+              // （パラメータ付き exec URL の iframe 読み込みを Google 側が拒否する環境があるため）
+              if (typeof d.classCode === 'string' && d.classCode) {
+                this.classCode = d.classCode.replace(/[^A-Z2-9]/gi, '').toUpperCase().slice(0, 16);
+              }
               this.token = d.idToken;
               this.waiters.splice(0).forEach(w => w.done(d.idToken));
             }
@@ -2447,6 +2457,23 @@ var qrcode = function() {
         }
       };
       if (BOOT.mode === 'student') { Bridge.init(); Bridge._post({ type: 'app:ready' }); }
+
+      // 診断・シェル用の軽量ビーコン（全モード共通・秘密情報は含まない）。
+      // 「アプリのページ自体は読み込めているか」を外側から判定できるようにする
+      (function () {
+        let n = 0;
+        const beacon = () => {
+          n++;
+          const msg = { type: 'app:loaded', mode: BOOT.mode };
+          const target = BOOT.shellOrigin || '*';
+          [window.parent, window.top, window.opener].forEach((w) => {
+            try { if (w && w !== window) w.postMessage(msg, target); } catch (e) {}
+          });
+          if (n >= 5) clearInterval(iv);
+        };
+        const iv = setInterval(beacon, 800);
+        beacon();
+      })();
 
       // ── API ラッパー ──
       //  student: st<name>(idToken, classCode, ...) — トークン期限切れは自動再取得してリトライ
@@ -4108,8 +4135,8 @@ var qrcode = function() {
       // ==========================================
       // 児童ゲート（デプロイ S / ?mode=student&c=CODE）
       // ==========================================
-      const StudentGate = () => {
-        const classCode = BOOT.classCode;
+      const StudentGate = ({ classCode: codeProp }) => {
+        const classCode = codeProp || BOOT.classCode;
         const api = useMemo(() => makeApi('student', classCode), [classCode]);
         const doAction = useMemo(() => makeDoAction('student', api), [api]);
         const [phase, setPhase] = useState({ type: 'connecting' });
@@ -4253,6 +4280,29 @@ var qrcode = function() {
       // ==========================================
       // Root
       // ==========================================
+      // landing モード（パラメータ無しで開かれた場合）でも、まずシェルとの
+      // ハンドシェイクを試みる。クラスコード付き exec URL（?mode=student&c=…）の
+      // iframe 読み込みを Google 側が拒否する環境があるため、シェルは児童用 iframe を
+      // 「素の exec URL」で開き、クラスコードは app:idToken メッセージで渡してくる。
+      // シェルから応答が無ければ（＝直接開かれた場合）従来どおり案内画面を出す。
+      const LandingOrShellWait = () => {
+        const [phase, setPhase] = useState('wait');
+        const [code, setCode] = useState('');
+        useEffect(() => {
+          Bridge.init();
+          let alive = true;
+          Bridge.getToken(12000).then(() => {
+            if (!alive) return;
+            if (Bridge.classCode) { setCode(Bridge.classCode); setPhase('student'); }
+            else setPhase('landing');
+          }).catch(() => { if (alive) setPhase('landing'); });
+          return () => { alive = false; };
+        }, []);
+        if (phase === 'student') return <StudentGate classCode={code} />;
+        if (phase === 'wait') return <LoadingOverlay label={<span>つないでいます...</span>} />;
+        return <Landing />;
+      };
+
       const Root = () => {
         if (BOOT.mode === 'teacher') return <TeacherPortal />;
         if (BOOT.mode === 'student') return <StudentGate />;
@@ -4261,7 +4311,7 @@ var qrcode = function() {
           ctx.doAction = makeDoAction('legacy', ctx.api);
           return <MainApp ctx={ctx} />;
         }
-        return <Landing />;
+        return <LandingOrShellWait />;
       };
 
       const root = ReactDOM.createRoot(document.getElementById('root'));
