@@ -77,6 +77,7 @@
       <div id="gate-fallback" class="hidden">
         <p>うまくつながらないみたい…<br>べつのタブで一度ひらいてから、この画面にもどってきてね。</p>
         <button class="btn" id="open-newtab">べつのタブでひらく</button>
+        <p class="note" id="fallback-url" style="margin-top:16px; word-break:break-all;"></p>
       </div>
       <div id="gate-config-error" class="hidden">
         <p style="color:#e11d48; font-weight:700;">セットアップが完了していません。<br>docs/config.js の execUrlT / execUrlS / googleClientId を設定してください。</p>
@@ -112,6 +113,17 @@
     var frame = document.getElementById('app-frame');
     var gate = document.getElementById('gate');
     var el = function (id) { return document.getElementById(id); };
+
+    // 児童用デプロイSは匿名アクセス前提（本人確認は ID トークンで行う）。
+    // ブラウザにログイン中の Google アカウント（学校の管理アカウント等）の Cookie が
+    // iframe に付くと、そのアカウント側のポリシーで GAS へのアクセスがブロックされる
+    // ことがあるため、児童モードでは Cookie を一切送らない credentialless iframe で
+    // 読み込む（Chrome / Edge / Chromebook で有効。未対応ブラウザでは無視されるが、
+    // Safari 等はもともと第三者 Cookie を送らないため同じく匿名アクセスになる）。
+    // 教員モード（デプロイT）は Session による本人特定に Cookie が必要なので付けない。
+    if (mode === 'student') {
+      try { frame.setAttribute('credentialless', ''); } catch (e) {}
+    }
 
     var state = {
       gisReady: false,
@@ -244,6 +256,8 @@
           // GAS 側のログイン画面は iframe に出せないため、別タブで開かせて戻す
           gate.classList.remove('hidden');
           show('gate-fallback');
+          // 診断用: どの URL への接続に失敗したかを表示する
+          el('fallback-url').textContent = '接続先: ' + frameUrl();
         }
       }, READY_TIMEOUT_MS);
     }

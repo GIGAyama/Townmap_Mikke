@@ -3,7 +3,7 @@
  * キャッシュするのはシェル資産のみ。
  * GAS（script.google.com / googleusercontent.com）と gsi/client は絶対にキャッシュしない。
  */
-const CACHE_NAME = 'mikke-shell-v1';
+const CACHE_NAME = 'mikke-shell-v2';
 const SHELL_ASSETS = ['./', './index.html', './config.js', './manifest.webmanifest', './icon.svg'];
 
 self.addEventListener('install', (event) => {
