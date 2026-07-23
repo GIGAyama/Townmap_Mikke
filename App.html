@@ -1,0 +1,4271 @@
+<!DOCTYPE html>
+<html lang="ja">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>みっけ！</title>
+
+    <!-- React & Babel -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;600;700;800&display=swap" rel="stylesheet">
+
+    <!-- 🎨 デザインシステム -->
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            colors: {
+              brand: { 50: '#f0f9ff', 100: '#e0f2fe', 500: '#0ea5e9', 600: '#0284c7', 900: '#0c4a6e' },
+              accent: { 50: '#fff1f2', 100: '#ffe4e6', 500: '#f43f5e', 600: '#e11d48', 900: '#881337' },
+              surface: '#f8fafc',
+            },
+            fontFamily: { 'rounded': ['"M PLUS Rounded 1c"', 'sans-serif'] },
+            boxShadow: {
+              'soft': '0 4px 20px -2px rgba(0, 0, 0, 0.05)',
+              'float': '0 10px 40px -10px rgba(0,0,0,0.12)',
+              'inner-soft': 'inset 0 2px 4px 0 rgba(0, 0, 0, 0.04)',
+            },
+            zIndex: { 'overlay': 8000, 'modal': 9000, 'toast': 9999 }
+          }
+        }
+      }
+    </script>
+    <style>
+      html, body {
+        height: 100%; overflow: hidden;
+        font-family: 'M PLUS Rounded 1c', sans-serif;
+        background-color: #f8fafc; color: #334155;
+        touch-action: manipulation; overscroll-behavior: none;
+        line-height: 1.6; letter-spacing: 0.02em;
+      }
+      .hide-scrollbar::-webkit-scrollbar { display: none; }
+      .custom-scrollbar::-webkit-scrollbar { width: 6px; height: 6px; }
+      .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+      .custom-scrollbar::-webkit-scrollbar-thumb { background-color: #cbd5e1; border-radius: 10px; }
+      .custom-scrollbar::-webkit-scrollbar-thumb:hover { background-color: #94a3b8; }
+
+      @keyframes popIn { from { opacity: 0; transform: scale(0.96) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+      .animate-pop-in { animation: popIn 0.25s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+
+      @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+      .animate-slide-in-right { animation: slideInRight 0.3s cubic-bezier(0.2, 0.8, 0.2, 1) forwards; }
+
+      .glass-panel { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.6); }
+      .smooth-map-container { will-change: transform; transform-origin: center; }
+
+      @keyframes bouncePin { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-20px); } }
+      .animate-bounce-pin { animation: bouncePin 1s infinite ease-in-out; }
+      @keyframes shadowPulse { 0%, 100% { transform: scale(1); opacity: 0.4; } 50% { transform: scale(0.6); opacity: 0.15; } }
+      .animate-shadow-pulse { animation: shadowPulse 1s infinite ease-in-out; }
+
+      @media print {
+        body { background: white !important; }
+        .no-print { display: none !important; }
+        .print-full { width: 100% !important; border: none !important; box-shadow: none !important; padding: 0 !important; margin: 0 !important; overflow: visible !important; }
+      }
+    </style>
+
+    <!-- QR コード生成（qrcode-generator / MIT License / インライン同梱・外部 API 不使用） -->
+    <script>
+//---------------------------------------------------------------------
+//
+// QR Code Generator for JavaScript
+//
+// Copyright (c) 2009 Kazuhiko Arase
+//
+// URL: http://www.d-project.com/
+//
+// Licensed under the MIT license:
+//  http://www.opensource.org/licenses/mit-license.php
+//
+// The word 'QR Code' is registered trademark of
+// DENSO WAVE INCORPORATED
+//  http://www.denso-wave.com/qrcode/faqpatent-e.html
+//
+//---------------------------------------------------------------------
+
+var qrcode = function() {
+
+  //---------------------------------------------------------------------
+  // qrcode
+  //---------------------------------------------------------------------
+
+  /**
+   * qrcode
+   * @param typeNumber 1 to 40
+   * @param errorCorrectionLevel 'L','M','Q','H'
+   */
+  var qrcode = function(typeNumber, errorCorrectionLevel) {
+
+    var PAD0 = 0xEC;
+    var PAD1 = 0x11;
+
+    var _typeNumber = typeNumber;
+    var _errorCorrectionLevel = QRErrorCorrectionLevel[errorCorrectionLevel];
+    var _modules = null;
+    var _moduleCount = 0;
+    var _dataCache = null;
+    var _dataList = [];
+
+    var _this = {};
+
+    var makeImpl = function(test, maskPattern) {
+
+      _moduleCount = _typeNumber * 4 + 17;
+      _modules = function(moduleCount) {
+        var modules = new Array(moduleCount);
+        for (var row = 0; row < moduleCount; row += 1) {
+          modules[row] = new Array(moduleCount);
+          for (var col = 0; col < moduleCount; col += 1) {
+            modules[row][col] = null;
+          }
+        }
+        return modules;
+      }(_moduleCount);
+
+      setupPositionProbePattern(0, 0);
+      setupPositionProbePattern(_moduleCount - 7, 0);
+      setupPositionProbePattern(0, _moduleCount - 7);
+      setupPositionAdjustPattern();
+      setupTimingPattern();
+      setupTypeInfo(test, maskPattern);
+
+      if (_typeNumber >= 7) {
+        setupTypeNumber(test);
+      }
+
+      if (_dataCache == null) {
+        _dataCache = createData(_typeNumber, _errorCorrectionLevel, _dataList);
+      }
+
+      mapData(_dataCache, maskPattern);
+    };
+
+    var setupPositionProbePattern = function(row, col) {
+
+      for (var r = -1; r <= 7; r += 1) {
+
+        if (row + r <= -1 || _moduleCount <= row + r) continue;
+
+        for (var c = -1; c <= 7; c += 1) {
+
+          if (col + c <= -1 || _moduleCount <= col + c) continue;
+
+          if ( (0 <= r && r <= 6 && (c == 0 || c == 6) )
+              || (0 <= c && c <= 6 && (r == 0 || r == 6) )
+              || (2 <= r && r <= 4 && 2 <= c && c <= 4) ) {
+            _modules[row + r][col + c] = true;
+          } else {
+            _modules[row + r][col + c] = false;
+          }
+        }
+      }
+    };
+
+    var getBestMaskPattern = function() {
+
+      var minLostPoint = 0;
+      var pattern = 0;
+
+      for (var i = 0; i < 8; i += 1) {
+
+        makeImpl(true, i);
+
+        var lostPoint = QRUtil.getLostPoint(_this);
+
+        if (i == 0 || minLostPoint > lostPoint) {
+          minLostPoint = lostPoint;
+          pattern = i;
+        }
+      }
+
+      return pattern;
+    };
+
+    var setupTimingPattern = function() {
+
+      for (var r = 8; r < _moduleCount - 8; r += 1) {
+        if (_modules[r][6] != null) {
+          continue;
+        }
+        _modules[r][6] = (r % 2 == 0);
+      }
+
+      for (var c = 8; c < _moduleCount - 8; c += 1) {
+        if (_modules[6][c] != null) {
+          continue;
+        }
+        _modules[6][c] = (c % 2 == 0);
+      }
+    };
+
+    var setupPositionAdjustPattern = function() {
+
+      var pos = QRUtil.getPatternPosition(_typeNumber);
+
+      for (var i = 0; i < pos.length; i += 1) {
+
+        for (var j = 0; j < pos.length; j += 1) {
+
+          var row = pos[i];
+          var col = pos[j];
+
+          if (_modules[row][col] != null) {
+            continue;
+          }
+
+          for (var r = -2; r <= 2; r += 1) {
+
+            for (var c = -2; c <= 2; c += 1) {
+
+              if (r == -2 || r == 2 || c == -2 || c == 2
+                  || (r == 0 && c == 0) ) {
+                _modules[row + r][col + c] = true;
+              } else {
+                _modules[row + r][col + c] = false;
+              }
+            }
+          }
+        }
+      }
+    };
+
+    var setupTypeNumber = function(test) {
+
+      var bits = QRUtil.getBCHTypeNumber(_typeNumber);
+
+      for (var i = 0; i < 18; i += 1) {
+        var mod = (!test && ( (bits >> i) & 1) == 1);
+        _modules[Math.floor(i / 3)][i % 3 + _moduleCount - 8 - 3] = mod;
+      }
+
+      for (var i = 0; i < 18; i += 1) {
+        var mod = (!test && ( (bits >> i) & 1) == 1);
+        _modules[i % 3 + _moduleCount - 8 - 3][Math.floor(i / 3)] = mod;
+      }
+    };
+
+    var setupTypeInfo = function(test, maskPattern) {
+
+      var data = (_errorCorrectionLevel << 3) | maskPattern;
+      var bits = QRUtil.getBCHTypeInfo(data);
+
+      // vertical
+      for (var i = 0; i < 15; i += 1) {
+
+        var mod = (!test && ( (bits >> i) & 1) == 1);
+
+        if (i < 6) {
+          _modules[i][8] = mod;
+        } else if (i < 8) {
+          _modules[i + 1][8] = mod;
+        } else {
+          _modules[_moduleCount - 15 + i][8] = mod;
+        }
+      }
+
+      // horizontal
+      for (var i = 0; i < 15; i += 1) {
+
+        var mod = (!test && ( (bits >> i) & 1) == 1);
+
+        if (i < 8) {
+          _modules[8][_moduleCount - i - 1] = mod;
+        } else if (i < 9) {
+          _modules[8][15 - i - 1 + 1] = mod;
+        } else {
+          _modules[8][15 - i - 1] = mod;
+        }
+      }
+
+      // fixed module
+      _modules[_moduleCount - 8][8] = (!test);
+    };
+
+    var mapData = function(data, maskPattern) {
+
+      var inc = -1;
+      var row = _moduleCount - 1;
+      var bitIndex = 7;
+      var byteIndex = 0;
+      var maskFunc = QRUtil.getMaskFunction(maskPattern);
+
+      for (var col = _moduleCount - 1; col > 0; col -= 2) {
+
+        if (col == 6) col -= 1;
+
+        while (true) {
+
+          for (var c = 0; c < 2; c += 1) {
+
+            if (_modules[row][col - c] == null) {
+
+              var dark = false;
+
+              if (byteIndex < data.length) {
+                dark = ( ( (data[byteIndex] >>> bitIndex) & 1) == 1);
+              }
+
+              var mask = maskFunc(row, col - c);
+
+              if (mask) {
+                dark = !dark;
+              }
+
+              _modules[row][col - c] = dark;
+              bitIndex -= 1;
+
+              if (bitIndex == -1) {
+                byteIndex += 1;
+                bitIndex = 7;
+              }
+            }
+          }
+
+          row += inc;
+
+          if (row < 0 || _moduleCount <= row) {
+            row -= inc;
+            inc = -inc;
+            break;
+          }
+        }
+      }
+    };
+
+    var createBytes = function(buffer, rsBlocks) {
+
+      var offset = 0;
+
+      var maxDcCount = 0;
+      var maxEcCount = 0;
+
+      var dcdata = new Array(rsBlocks.length);
+      var ecdata = new Array(rsBlocks.length);
+
+      for (var r = 0; r < rsBlocks.length; r += 1) {
+
+        var dcCount = rsBlocks[r].dataCount;
+        var ecCount = rsBlocks[r].totalCount - dcCount;
+
+        maxDcCount = Math.max(maxDcCount, dcCount);
+        maxEcCount = Math.max(maxEcCount, ecCount);
+
+        dcdata[r] = new Array(dcCount);
+
+        for (var i = 0; i < dcdata[r].length; i += 1) {
+          dcdata[r][i] = 0xff & buffer.getBuffer()[i + offset];
+        }
+        offset += dcCount;
+
+        var rsPoly = QRUtil.getErrorCorrectPolynomial(ecCount);
+        var rawPoly = qrPolynomial(dcdata[r], rsPoly.getLength() - 1);
+
+        var modPoly = rawPoly.mod(rsPoly);
+        ecdata[r] = new Array(rsPoly.getLength() - 1);
+        for (var i = 0; i < ecdata[r].length; i += 1) {
+          var modIndex = i + modPoly.getLength() - ecdata[r].length;
+          ecdata[r][i] = (modIndex >= 0)? modPoly.getAt(modIndex) : 0;
+        }
+      }
+
+      var totalCodeCount = 0;
+      for (var i = 0; i < rsBlocks.length; i += 1) {
+        totalCodeCount += rsBlocks[i].totalCount;
+      }
+
+      var data = new Array(totalCodeCount);
+      var index = 0;
+
+      for (var i = 0; i < maxDcCount; i += 1) {
+        for (var r = 0; r < rsBlocks.length; r += 1) {
+          if (i < dcdata[r].length) {
+            data[index] = dcdata[r][i];
+            index += 1;
+          }
+        }
+      }
+
+      for (var i = 0; i < maxEcCount; i += 1) {
+        for (var r = 0; r < rsBlocks.length; r += 1) {
+          if (i < ecdata[r].length) {
+            data[index] = ecdata[r][i];
+            index += 1;
+          }
+        }
+      }
+
+      return data;
+    };
+
+    var createData = function(typeNumber, errorCorrectionLevel, dataList) {
+
+      var rsBlocks = QRRSBlock.getRSBlocks(typeNumber, errorCorrectionLevel);
+
+      var buffer = qrBitBuffer();
+
+      for (var i = 0; i < dataList.length; i += 1) {
+        var data = dataList[i];
+        buffer.put(data.getMode(), 4);
+        buffer.put(data.getLength(), QRUtil.getLengthInBits(data.getMode(), typeNumber) );
+        data.write(buffer);
+      }
+
+      // calc num max data.
+      var totalDataCount = 0;
+      for (var i = 0; i < rsBlocks.length; i += 1) {
+        totalDataCount += rsBlocks[i].dataCount;
+      }
+
+      if (buffer.getLengthInBits() > totalDataCount * 8) {
+        throw 'code length overflow. ('
+          + buffer.getLengthInBits()
+          + '>'
+          + totalDataCount * 8
+          + ')';
+      }
+
+      // end code
+      if (buffer.getLengthInBits() + 4 <= totalDataCount * 8) {
+        buffer.put(0, 4);
+      }
+
+      // padding
+      while (buffer.getLengthInBits() % 8 != 0) {
+        buffer.putBit(false);
+      }
+
+      // padding
+      while (true) {
+
+        if (buffer.getLengthInBits() >= totalDataCount * 8) {
+          break;
+        }
+        buffer.put(PAD0, 8);
+
+        if (buffer.getLengthInBits() >= totalDataCount * 8) {
+          break;
+        }
+        buffer.put(PAD1, 8);
+      }
+
+      return createBytes(buffer, rsBlocks);
+    };
+
+    _this.addData = function(data, mode) {
+
+      mode = mode || 'Byte';
+
+      var newData = null;
+
+      switch(mode) {
+      case 'Numeric' :
+        newData = qrNumber(data);
+        break;
+      case 'Alphanumeric' :
+        newData = qrAlphaNum(data);
+        break;
+      case 'Byte' :
+        newData = qr8BitByte(data);
+        break;
+      case 'Kanji' :
+        newData = qrKanji(data);
+        break;
+      default :
+        throw 'mode:' + mode;
+      }
+
+      _dataList.push(newData);
+      _dataCache = null;
+    };
+
+    _this.isDark = function(row, col) {
+      if (row < 0 || _moduleCount <= row || col < 0 || _moduleCount <= col) {
+        throw row + ',' + col;
+      }
+      return _modules[row][col];
+    };
+
+    _this.getModuleCount = function() {
+      return _moduleCount;
+    };
+
+    _this.make = function() {
+      if (_typeNumber < 1) {
+        var typeNumber = 1;
+
+        for (; typeNumber < 40; typeNumber++) {
+          var rsBlocks = QRRSBlock.getRSBlocks(typeNumber, _errorCorrectionLevel);
+          var buffer = qrBitBuffer();
+
+          for (var i = 0; i < _dataList.length; i++) {
+            var data = _dataList[i];
+            buffer.put(data.getMode(), 4);
+            buffer.put(data.getLength(), QRUtil.getLengthInBits(data.getMode(), typeNumber) );
+            data.write(buffer);
+          }
+
+          var totalDataCount = 0;
+          for (var i = 0; i < rsBlocks.length; i++) {
+            totalDataCount += rsBlocks[i].dataCount;
+          }
+
+          if (buffer.getLengthInBits() <= totalDataCount * 8) {
+            break;
+          }
+        }
+
+        _typeNumber = typeNumber;
+      }
+
+      makeImpl(false, getBestMaskPattern() );
+    };
+
+    _this.createTableTag = function(cellSize, margin) {
+
+      cellSize = cellSize || 2;
+      margin = (typeof margin == 'undefined')? cellSize * 4 : margin;
+
+      var qrHtml = '';
+
+      qrHtml += '<table style="';
+      qrHtml += ' border-width: 0px; border-style: none;';
+      qrHtml += ' border-collapse: collapse;';
+      qrHtml += ' padding: 0px; margin: ' + margin + 'px;';
+      qrHtml += '">';
+      qrHtml += '<tbody>';
+
+      for (var r = 0; r < _this.getModuleCount(); r += 1) {
+
+        qrHtml += '<tr>';
+
+        for (var c = 0; c < _this.getModuleCount(); c += 1) {
+          qrHtml += '<td style="';
+          qrHtml += ' border-width: 0px; border-style: none;';
+          qrHtml += ' border-collapse: collapse;';
+          qrHtml += ' padding: 0px; margin: 0px;';
+          qrHtml += ' width: ' + cellSize + 'px;';
+          qrHtml += ' height: ' + cellSize + 'px;';
+          qrHtml += ' background-color: ';
+          qrHtml += _this.isDark(r, c)? '#000000' : '#ffffff';
+          qrHtml += ';';
+          qrHtml += '"/>';
+        }
+
+        qrHtml += '</tr>';
+      }
+
+      qrHtml += '</tbody>';
+      qrHtml += '</table>';
+
+      return qrHtml;
+    };
+
+    _this.createSvgTag = function(cellSize, margin, alt, title) {
+
+      var opts = {};
+      if (typeof arguments[0] == 'object') {
+        // Called by options.
+        opts = arguments[0];
+        // overwrite cellSize and margin.
+        cellSize = opts.cellSize;
+        margin = opts.margin;
+        alt = opts.alt;
+        title = opts.title;
+      }
+
+      cellSize = cellSize || 2;
+      margin = (typeof margin == 'undefined')? cellSize * 4 : margin;
+
+      // Compose alt property surrogate
+      alt = (typeof alt === 'string') ? {text: alt} : alt || {};
+      alt.text = alt.text || null;
+      alt.id = (alt.text) ? alt.id || 'qrcode-description' : null;
+
+      // Compose title property surrogate
+      title = (typeof title === 'string') ? {text: title} : title || {};
+      title.text = title.text || null;
+      title.id = (title.text) ? title.id || 'qrcode-title' : null;
+
+      var size = _this.getModuleCount() * cellSize + margin * 2;
+      var c, mc, r, mr, qrSvg='', rect;
+
+      rect = 'l' + cellSize + ',0 0,' + cellSize +
+        ' -' + cellSize + ',0 0,-' + cellSize + 'z ';
+
+      qrSvg += '<svg version="1.1" xmlns="http://www.w3.org/2000/svg"';
+      qrSvg += !opts.scalable ? ' width="' + size + 'px" height="' + size + 'px"' : '';
+      qrSvg += ' viewBox="0 0 ' + size + ' ' + size + '" ';
+      qrSvg += ' preserveAspectRatio="xMinYMin meet"';
+      qrSvg += (title.text || alt.text) ? ' role="img" aria-labelledby="' +
+          escapeXml([title.id, alt.id].join(' ').trim() ) + '"' : '';
+      qrSvg += '>';
+      qrSvg += (title.text) ? '<title id="' + escapeXml(title.id) + '">' +
+          escapeXml(title.text) + '</title>' : '';
+      qrSvg += (alt.text) ? '<description id="' + escapeXml(alt.id) + '">' +
+          escapeXml(alt.text) + '</description>' : '';
+      qrSvg += '<rect width="100%" height="100%" fill="white" cx="0" cy="0"/>';
+      qrSvg += '<path d="';
+
+      for (r = 0; r < _this.getModuleCount(); r += 1) {
+        mr = r * cellSize + margin;
+        for (c = 0; c < _this.getModuleCount(); c += 1) {
+          if (_this.isDark(r, c) ) {
+            mc = c*cellSize+margin;
+            qrSvg += 'M' + mc + ',' + mr + rect;
+          }
+        }
+      }
+
+      qrSvg += '" stroke="transparent" fill="black"/>';
+      qrSvg += '</svg>';
+
+      return qrSvg;
+    };
+
+    _this.createDataURL = function(cellSize, margin) {
+
+      cellSize = cellSize || 2;
+      margin = (typeof margin == 'undefined')? cellSize * 4 : margin;
+
+      var size = _this.getModuleCount() * cellSize + margin * 2;
+      var min = margin;
+      var max = size - margin;
+
+      return createDataURL(size, size, function(x, y) {
+        if (min <= x && x < max && min <= y && y < max) {
+          var c = Math.floor( (x - min) / cellSize);
+          var r = Math.floor( (y - min) / cellSize);
+          return _this.isDark(r, c)? 0 : 1;
+        } else {
+          return 1;
+        }
+      } );
+    };
+
+    _this.createImgTag = function(cellSize, margin, alt) {
+
+      cellSize = cellSize || 2;
+      margin = (typeof margin == 'undefined')? cellSize * 4 : margin;
+
+      var size = _this.getModuleCount() * cellSize + margin * 2;
+
+      var img = '';
+      img += '<img';
+      img += '\u0020src="';
+      img += _this.createDataURL(cellSize, margin);
+      img += '"';
+      img += '\u0020width="';
+      img += size;
+      img += '"';
+      img += '\u0020height="';
+      img += size;
+      img += '"';
+      if (alt) {
+        img += '\u0020alt="';
+        img += escapeXml(alt);
+        img += '"';
+      }
+      img += '/>';
+
+      return img;
+    };
+
+    var escapeXml = function(s) {
+      var escaped = '';
+      for (var i = 0; i < s.length; i += 1) {
+        var c = s.charAt(i);
+        switch(c) {
+        case '<': escaped += '&lt;'; break;
+        case '>': escaped += '&gt;'; break;
+        case '&': escaped += '&amp;'; break;
+        case '"': escaped += '&quot;'; break;
+        default : escaped += c; break;
+        }
+      }
+      return escaped;
+    };
+
+    var _createHalfASCII = function(margin) {
+      var cellSize = 1;
+      margin = (typeof margin == 'undefined')? cellSize * 2 : margin;
+
+      var size = _this.getModuleCount() * cellSize + margin * 2;
+      var min = margin;
+      var max = size - margin;
+
+      var y, x, r1, r2, p;
+
+      var blocks = {
+        '██': '█',
+        '█ ': '▀',
+        ' █': '▄',
+        '  ': ' '
+      };
+
+      var blocksLastLineNoMargin = {
+        '██': '▀',
+        '█ ': '▀',
+        ' █': ' ',
+        '  ': ' '
+      };
+
+      var ascii = '';
+      for (y = 0; y < size; y += 2) {
+        r1 = Math.floor((y - min) / cellSize);
+        r2 = Math.floor((y + 1 - min) / cellSize);
+        for (x = 0; x < size; x += 1) {
+          p = '█';
+
+          if (min <= x && x < max && min <= y && y < max && _this.isDark(r1, Math.floor((x - min) / cellSize))) {
+            p = ' ';
+          }
+
+          if (min <= x && x < max && min <= y+1 && y+1 < max && _this.isDark(r2, Math.floor((x - min) / cellSize))) {
+            p += ' ';
+          }
+          else {
+            p += '█';
+          }
+
+          // Output 2 characters per pixel, to create full square. 1 character per pixels gives only half width of square.
+          ascii += (margin < 1 && y+1 >= max) ? blocksLastLineNoMargin[p] : blocks[p];
+        }
+
+        ascii += '\n';
+      }
+
+      if (size % 2 && margin > 0) {
+        return ascii.substring(0, ascii.length - size - 1) + Array(size+1).join('▀');
+      }
+
+      return ascii.substring(0, ascii.length-1);
+    };
+
+    _this.createASCII = function(cellSize, margin) {
+      cellSize = cellSize || 1;
+
+      if (cellSize < 2) {
+        return _createHalfASCII(margin);
+      }
+
+      cellSize -= 1;
+      margin = (typeof margin == 'undefined')? cellSize * 2 : margin;
+
+      var size = _this.getModuleCount() * cellSize + margin * 2;
+      var min = margin;
+      var max = size - margin;
+
+      var y, x, r, p;
+
+      var white = Array(cellSize+1).join('██');
+      var black = Array(cellSize+1).join('  ');
+
+      var ascii = '';
+      var line = '';
+      for (y = 0; y < size; y += 1) {
+        r = Math.floor( (y - min) / cellSize);
+        line = '';
+        for (x = 0; x < size; x += 1) {
+          p = 1;
+
+          if (min <= x && x < max && min <= y && y < max && _this.isDark(r, Math.floor((x - min) / cellSize))) {
+            p = 0;
+          }
+
+          // Output 2 characters per pixel, to create full square. 1 character per pixels gives only half width of square.
+          line += p ? white : black;
+        }
+
+        for (r = 0; r < cellSize; r += 1) {
+          ascii += line + '\n';
+        }
+      }
+
+      return ascii.substring(0, ascii.length-1);
+    };
+
+    _this.renderTo2dContext = function(context, cellSize) {
+      cellSize = cellSize || 2;
+      var length = _this.getModuleCount();
+      for (var row = 0; row < length; row++) {
+        for (var col = 0; col < length; col++) {
+          context.fillStyle = _this.isDark(row, col) ? 'black' : 'white';
+          context.fillRect(row * cellSize, col * cellSize, cellSize, cellSize);
+        }
+      }
+    }
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // qrcode.stringToBytes
+  //---------------------------------------------------------------------
+
+  qrcode.stringToBytesFuncs = {
+    'default' : function(s) {
+      var bytes = [];
+      for (var i = 0; i < s.length; i += 1) {
+        var c = s.charCodeAt(i);
+        bytes.push(c & 0xff);
+      }
+      return bytes;
+    }
+  };
+
+  qrcode.stringToBytes = qrcode.stringToBytesFuncs['default'];
+
+  //---------------------------------------------------------------------
+  // qrcode.createStringToBytes
+  //---------------------------------------------------------------------
+
+  /**
+   * @param unicodeData base64 string of byte array.
+   * [16bit Unicode],[16bit Bytes], ...
+   * @param numChars
+   */
+  qrcode.createStringToBytes = function(unicodeData, numChars) {
+
+    // create conversion map.
+
+    var unicodeMap = function() {
+
+      var bin = base64DecodeInputStream(unicodeData);
+      var read = function() {
+        var b = bin.read();
+        if (b == -1) throw 'eof';
+        return b;
+      };
+
+      var count = 0;
+      var unicodeMap = {};
+      while (true) {
+        var b0 = bin.read();
+        if (b0 == -1) break;
+        var b1 = read();
+        var b2 = read();
+        var b3 = read();
+        var k = String.fromCharCode( (b0 << 8) | b1);
+        var v = (b2 << 8) | b3;
+        unicodeMap[k] = v;
+        count += 1;
+      }
+      if (count != numChars) {
+        throw count + ' != ' + numChars;
+      }
+
+      return unicodeMap;
+    }();
+
+    var unknownChar = '?'.charCodeAt(0);
+
+    return function(s) {
+      var bytes = [];
+      for (var i = 0; i < s.length; i += 1) {
+        var c = s.charCodeAt(i);
+        if (c < 128) {
+          bytes.push(c);
+        } else {
+          var b = unicodeMap[s.charAt(i)];
+          if (typeof b == 'number') {
+            if ( (b & 0xff) == b) {
+              // 1byte
+              bytes.push(b);
+            } else {
+              // 2bytes
+              bytes.push(b >>> 8);
+              bytes.push(b & 0xff);
+            }
+          } else {
+            bytes.push(unknownChar);
+          }
+        }
+      }
+      return bytes;
+    };
+  };
+
+  //---------------------------------------------------------------------
+  // QRMode
+  //---------------------------------------------------------------------
+
+  var QRMode = {
+    MODE_NUMBER :    1 << 0,
+    MODE_ALPHA_NUM : 1 << 1,
+    MODE_8BIT_BYTE : 1 << 2,
+    MODE_KANJI :     1 << 3
+  };
+
+  //---------------------------------------------------------------------
+  // QRErrorCorrectionLevel
+  //---------------------------------------------------------------------
+
+  var QRErrorCorrectionLevel = {
+    L : 1,
+    M : 0,
+    Q : 3,
+    H : 2
+  };
+
+  //---------------------------------------------------------------------
+  // QRMaskPattern
+  //---------------------------------------------------------------------
+
+  var QRMaskPattern = {
+    PATTERN000 : 0,
+    PATTERN001 : 1,
+    PATTERN010 : 2,
+    PATTERN011 : 3,
+    PATTERN100 : 4,
+    PATTERN101 : 5,
+    PATTERN110 : 6,
+    PATTERN111 : 7
+  };
+
+  //---------------------------------------------------------------------
+  // QRUtil
+  //---------------------------------------------------------------------
+
+  var QRUtil = function() {
+
+    var PATTERN_POSITION_TABLE = [
+      [],
+      [6, 18],
+      [6, 22],
+      [6, 26],
+      [6, 30],
+      [6, 34],
+      [6, 22, 38],
+      [6, 24, 42],
+      [6, 26, 46],
+      [6, 28, 50],
+      [6, 30, 54],
+      [6, 32, 58],
+      [6, 34, 62],
+      [6, 26, 46, 66],
+      [6, 26, 48, 70],
+      [6, 26, 50, 74],
+      [6, 30, 54, 78],
+      [6, 30, 56, 82],
+      [6, 30, 58, 86],
+      [6, 34, 62, 90],
+      [6, 28, 50, 72, 94],
+      [6, 26, 50, 74, 98],
+      [6, 30, 54, 78, 102],
+      [6, 28, 54, 80, 106],
+      [6, 32, 58, 84, 110],
+      [6, 30, 58, 86, 114],
+      [6, 34, 62, 90, 118],
+      [6, 26, 50, 74, 98, 122],
+      [6, 30, 54, 78, 102, 126],
+      [6, 26, 52, 78, 104, 130],
+      [6, 30, 56, 82, 108, 134],
+      [6, 34, 60, 86, 112, 138],
+      [6, 30, 58, 86, 114, 142],
+      [6, 34, 62, 90, 118, 146],
+      [6, 30, 54, 78, 102, 126, 150],
+      [6, 24, 50, 76, 102, 128, 154],
+      [6, 28, 54, 80, 106, 132, 158],
+      [6, 32, 58, 84, 110, 136, 162],
+      [6, 26, 54, 82, 110, 138, 166],
+      [6, 30, 58, 86, 114, 142, 170]
+    ];
+    var G15 = (1 << 10) | (1 << 8) | (1 << 5) | (1 << 4) | (1 << 2) | (1 << 1) | (1 << 0);
+    var G18 = (1 << 12) | (1 << 11) | (1 << 10) | (1 << 9) | (1 << 8) | (1 << 5) | (1 << 2) | (1 << 0);
+    var G15_MASK = (1 << 14) | (1 << 12) | (1 << 10) | (1 << 4) | (1 << 1);
+
+    var _this = {};
+
+    var getBCHDigit = function(data) {
+      var digit = 0;
+      while (data != 0) {
+        digit += 1;
+        data >>>= 1;
+      }
+      return digit;
+    };
+
+    _this.getBCHTypeInfo = function(data) {
+      var d = data << 10;
+      while (getBCHDigit(d) - getBCHDigit(G15) >= 0) {
+        d ^= (G15 << (getBCHDigit(d) - getBCHDigit(G15) ) );
+      }
+      return ( (data << 10) | d) ^ G15_MASK;
+    };
+
+    _this.getBCHTypeNumber = function(data) {
+      var d = data << 12;
+      while (getBCHDigit(d) - getBCHDigit(G18) >= 0) {
+        d ^= (G18 << (getBCHDigit(d) - getBCHDigit(G18) ) );
+      }
+      return (data << 12) | d;
+    };
+
+    _this.getPatternPosition = function(typeNumber) {
+      return PATTERN_POSITION_TABLE[typeNumber - 1];
+    };
+
+    _this.getMaskFunction = function(maskPattern) {
+
+      switch (maskPattern) {
+
+      case QRMaskPattern.PATTERN000 :
+        return function(i, j) { return (i + j) % 2 == 0; };
+      case QRMaskPattern.PATTERN001 :
+        return function(i, j) { return i % 2 == 0; };
+      case QRMaskPattern.PATTERN010 :
+        return function(i, j) { return j % 3 == 0; };
+      case QRMaskPattern.PATTERN011 :
+        return function(i, j) { return (i + j) % 3 == 0; };
+      case QRMaskPattern.PATTERN100 :
+        return function(i, j) { return (Math.floor(i / 2) + Math.floor(j / 3) ) % 2 == 0; };
+      case QRMaskPattern.PATTERN101 :
+        return function(i, j) { return (i * j) % 2 + (i * j) % 3 == 0; };
+      case QRMaskPattern.PATTERN110 :
+        return function(i, j) { return ( (i * j) % 2 + (i * j) % 3) % 2 == 0; };
+      case QRMaskPattern.PATTERN111 :
+        return function(i, j) { return ( (i * j) % 3 + (i + j) % 2) % 2 == 0; };
+
+      default :
+        throw 'bad maskPattern:' + maskPattern;
+      }
+    };
+
+    _this.getErrorCorrectPolynomial = function(errorCorrectLength) {
+      var a = qrPolynomial([1], 0);
+      for (var i = 0; i < errorCorrectLength; i += 1) {
+        a = a.multiply(qrPolynomial([1, QRMath.gexp(i)], 0) );
+      }
+      return a;
+    };
+
+    _this.getLengthInBits = function(mode, type) {
+
+      if (1 <= type && type < 10) {
+
+        // 1 - 9
+
+        switch(mode) {
+        case QRMode.MODE_NUMBER    : return 10;
+        case QRMode.MODE_ALPHA_NUM : return 9;
+        case QRMode.MODE_8BIT_BYTE : return 8;
+        case QRMode.MODE_KANJI     : return 8;
+        default :
+          throw 'mode:' + mode;
+        }
+
+      } else if (type < 27) {
+
+        // 10 - 26
+
+        switch(mode) {
+        case QRMode.MODE_NUMBER    : return 12;
+        case QRMode.MODE_ALPHA_NUM : return 11;
+        case QRMode.MODE_8BIT_BYTE : return 16;
+        case QRMode.MODE_KANJI     : return 10;
+        default :
+          throw 'mode:' + mode;
+        }
+
+      } else if (type < 41) {
+
+        // 27 - 40
+
+        switch(mode) {
+        case QRMode.MODE_NUMBER    : return 14;
+        case QRMode.MODE_ALPHA_NUM : return 13;
+        case QRMode.MODE_8BIT_BYTE : return 16;
+        case QRMode.MODE_KANJI     : return 12;
+        default :
+          throw 'mode:' + mode;
+        }
+
+      } else {
+        throw 'type:' + type;
+      }
+    };
+
+    _this.getLostPoint = function(qrcode) {
+
+      var moduleCount = qrcode.getModuleCount();
+
+      var lostPoint = 0;
+
+      // LEVEL1
+
+      for (var row = 0; row < moduleCount; row += 1) {
+        for (var col = 0; col < moduleCount; col += 1) {
+
+          var sameCount = 0;
+          var dark = qrcode.isDark(row, col);
+
+          for (var r = -1; r <= 1; r += 1) {
+
+            if (row + r < 0 || moduleCount <= row + r) {
+              continue;
+            }
+
+            for (var c = -1; c <= 1; c += 1) {
+
+              if (col + c < 0 || moduleCount <= col + c) {
+                continue;
+              }
+
+              if (r == 0 && c == 0) {
+                continue;
+              }
+
+              if (dark == qrcode.isDark(row + r, col + c) ) {
+                sameCount += 1;
+              }
+            }
+          }
+
+          if (sameCount > 5) {
+            lostPoint += (3 + sameCount - 5);
+          }
+        }
+      };
+
+      // LEVEL2
+
+      for (var row = 0; row < moduleCount - 1; row += 1) {
+        for (var col = 0; col < moduleCount - 1; col += 1) {
+          var count = 0;
+          if (qrcode.isDark(row, col) ) count += 1;
+          if (qrcode.isDark(row + 1, col) ) count += 1;
+          if (qrcode.isDark(row, col + 1) ) count += 1;
+          if (qrcode.isDark(row + 1, col + 1) ) count += 1;
+          if (count == 0 || count == 4) {
+            lostPoint += 3;
+          }
+        }
+      }
+
+      // LEVEL3
+
+      for (var row = 0; row < moduleCount; row += 1) {
+        for (var col = 0; col < moduleCount - 6; col += 1) {
+          if (qrcode.isDark(row, col)
+              && !qrcode.isDark(row, col + 1)
+              &&  qrcode.isDark(row, col + 2)
+              &&  qrcode.isDark(row, col + 3)
+              &&  qrcode.isDark(row, col + 4)
+              && !qrcode.isDark(row, col + 5)
+              &&  qrcode.isDark(row, col + 6) ) {
+            lostPoint += 40;
+          }
+        }
+      }
+
+      for (var col = 0; col < moduleCount; col += 1) {
+        for (var row = 0; row < moduleCount - 6; row += 1) {
+          if (qrcode.isDark(row, col)
+              && !qrcode.isDark(row + 1, col)
+              &&  qrcode.isDark(row + 2, col)
+              &&  qrcode.isDark(row + 3, col)
+              &&  qrcode.isDark(row + 4, col)
+              && !qrcode.isDark(row + 5, col)
+              &&  qrcode.isDark(row + 6, col) ) {
+            lostPoint += 40;
+          }
+        }
+      }
+
+      // LEVEL4
+
+      var darkCount = 0;
+
+      for (var col = 0; col < moduleCount; col += 1) {
+        for (var row = 0; row < moduleCount; row += 1) {
+          if (qrcode.isDark(row, col) ) {
+            darkCount += 1;
+          }
+        }
+      }
+
+      var ratio = Math.abs(100 * darkCount / moduleCount / moduleCount - 50) / 5;
+      lostPoint += ratio * 10;
+
+      return lostPoint;
+    };
+
+    return _this;
+  }();
+
+  //---------------------------------------------------------------------
+  // QRMath
+  //---------------------------------------------------------------------
+
+  var QRMath = function() {
+
+    var EXP_TABLE = new Array(256);
+    var LOG_TABLE = new Array(256);
+
+    // initialize tables
+    for (var i = 0; i < 8; i += 1) {
+      EXP_TABLE[i] = 1 << i;
+    }
+    for (var i = 8; i < 256; i += 1) {
+      EXP_TABLE[i] = EXP_TABLE[i - 4]
+        ^ EXP_TABLE[i - 5]
+        ^ EXP_TABLE[i - 6]
+        ^ EXP_TABLE[i - 8];
+    }
+    for (var i = 0; i < 255; i += 1) {
+      LOG_TABLE[EXP_TABLE[i] ] = i;
+    }
+
+    var _this = {};
+
+    _this.glog = function(n) {
+
+      if (n < 1) {
+        throw 'glog(' + n + ')';
+      }
+
+      return LOG_TABLE[n];
+    };
+
+    _this.gexp = function(n) {
+
+      while (n < 0) {
+        n += 255;
+      }
+
+      while (n >= 256) {
+        n -= 255;
+      }
+
+      return EXP_TABLE[n];
+    };
+
+    return _this;
+  }();
+
+  //---------------------------------------------------------------------
+  // qrPolynomial
+  //---------------------------------------------------------------------
+
+  function qrPolynomial(num, shift) {
+
+    if (typeof num.length == 'undefined') {
+      throw num.length + '/' + shift;
+    }
+
+    var _num = function() {
+      var offset = 0;
+      while (offset < num.length && num[offset] == 0) {
+        offset += 1;
+      }
+      var _num = new Array(num.length - offset + shift);
+      for (var i = 0; i < num.length - offset; i += 1) {
+        _num[i] = num[i + offset];
+      }
+      return _num;
+    }();
+
+    var _this = {};
+
+    _this.getAt = function(index) {
+      return _num[index];
+    };
+
+    _this.getLength = function() {
+      return _num.length;
+    };
+
+    _this.multiply = function(e) {
+
+      var num = new Array(_this.getLength() + e.getLength() - 1);
+
+      for (var i = 0; i < _this.getLength(); i += 1) {
+        for (var j = 0; j < e.getLength(); j += 1) {
+          num[i + j] ^= QRMath.gexp(QRMath.glog(_this.getAt(i) ) + QRMath.glog(e.getAt(j) ) );
+        }
+      }
+
+      return qrPolynomial(num, 0);
+    };
+
+    _this.mod = function(e) {
+
+      if (_this.getLength() - e.getLength() < 0) {
+        return _this;
+      }
+
+      var ratio = QRMath.glog(_this.getAt(0) ) - QRMath.glog(e.getAt(0) );
+
+      var num = new Array(_this.getLength() );
+      for (var i = 0; i < _this.getLength(); i += 1) {
+        num[i] = _this.getAt(i);
+      }
+
+      for (var i = 0; i < e.getLength(); i += 1) {
+        num[i] ^= QRMath.gexp(QRMath.glog(e.getAt(i) ) + ratio);
+      }
+
+      // recursive call
+      return qrPolynomial(num, 0).mod(e);
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // QRRSBlock
+  //---------------------------------------------------------------------
+
+  var QRRSBlock = function() {
+
+    var RS_BLOCK_TABLE = [
+
+      // L
+      // M
+      // Q
+      // H
+
+      // 1
+      [1, 26, 19],
+      [1, 26, 16],
+      [1, 26, 13],
+      [1, 26, 9],
+
+      // 2
+      [1, 44, 34],
+      [1, 44, 28],
+      [1, 44, 22],
+      [1, 44, 16],
+
+      // 3
+      [1, 70, 55],
+      [1, 70, 44],
+      [2, 35, 17],
+      [2, 35, 13],
+
+      // 4
+      [1, 100, 80],
+      [2, 50, 32],
+      [2, 50, 24],
+      [4, 25, 9],
+
+      // 5
+      [1, 134, 108],
+      [2, 67, 43],
+      [2, 33, 15, 2, 34, 16],
+      [2, 33, 11, 2, 34, 12],
+
+      // 6
+      [2, 86, 68],
+      [4, 43, 27],
+      [4, 43, 19],
+      [4, 43, 15],
+
+      // 7
+      [2, 98, 78],
+      [4, 49, 31],
+      [2, 32, 14, 4, 33, 15],
+      [4, 39, 13, 1, 40, 14],
+
+      // 8
+      [2, 121, 97],
+      [2, 60, 38, 2, 61, 39],
+      [4, 40, 18, 2, 41, 19],
+      [4, 40, 14, 2, 41, 15],
+
+      // 9
+      [2, 146, 116],
+      [3, 58, 36, 2, 59, 37],
+      [4, 36, 16, 4, 37, 17],
+      [4, 36, 12, 4, 37, 13],
+
+      // 10
+      [2, 86, 68, 2, 87, 69],
+      [4, 69, 43, 1, 70, 44],
+      [6, 43, 19, 2, 44, 20],
+      [6, 43, 15, 2, 44, 16],
+
+      // 11
+      [4, 101, 81],
+      [1, 80, 50, 4, 81, 51],
+      [4, 50, 22, 4, 51, 23],
+      [3, 36, 12, 8, 37, 13],
+
+      // 12
+      [2, 116, 92, 2, 117, 93],
+      [6, 58, 36, 2, 59, 37],
+      [4, 46, 20, 6, 47, 21],
+      [7, 42, 14, 4, 43, 15],
+
+      // 13
+      [4, 133, 107],
+      [8, 59, 37, 1, 60, 38],
+      [8, 44, 20, 4, 45, 21],
+      [12, 33, 11, 4, 34, 12],
+
+      // 14
+      [3, 145, 115, 1, 146, 116],
+      [4, 64, 40, 5, 65, 41],
+      [11, 36, 16, 5, 37, 17],
+      [11, 36, 12, 5, 37, 13],
+
+      // 15
+      [5, 109, 87, 1, 110, 88],
+      [5, 65, 41, 5, 66, 42],
+      [5, 54, 24, 7, 55, 25],
+      [11, 36, 12, 7, 37, 13],
+
+      // 16
+      [5, 122, 98, 1, 123, 99],
+      [7, 73, 45, 3, 74, 46],
+      [15, 43, 19, 2, 44, 20],
+      [3, 45, 15, 13, 46, 16],
+
+      // 17
+      [1, 135, 107, 5, 136, 108],
+      [10, 74, 46, 1, 75, 47],
+      [1, 50, 22, 15, 51, 23],
+      [2, 42, 14, 17, 43, 15],
+
+      // 18
+      [5, 150, 120, 1, 151, 121],
+      [9, 69, 43, 4, 70, 44],
+      [17, 50, 22, 1, 51, 23],
+      [2, 42, 14, 19, 43, 15],
+
+      // 19
+      [3, 141, 113, 4, 142, 114],
+      [3, 70, 44, 11, 71, 45],
+      [17, 47, 21, 4, 48, 22],
+      [9, 39, 13, 16, 40, 14],
+
+      // 20
+      [3, 135, 107, 5, 136, 108],
+      [3, 67, 41, 13, 68, 42],
+      [15, 54, 24, 5, 55, 25],
+      [15, 43, 15, 10, 44, 16],
+
+      // 21
+      [4, 144, 116, 4, 145, 117],
+      [17, 68, 42],
+      [17, 50, 22, 6, 51, 23],
+      [19, 46, 16, 6, 47, 17],
+
+      // 22
+      [2, 139, 111, 7, 140, 112],
+      [17, 74, 46],
+      [7, 54, 24, 16, 55, 25],
+      [34, 37, 13],
+
+      // 23
+      [4, 151, 121, 5, 152, 122],
+      [4, 75, 47, 14, 76, 48],
+      [11, 54, 24, 14, 55, 25],
+      [16, 45, 15, 14, 46, 16],
+
+      // 24
+      [6, 147, 117, 4, 148, 118],
+      [6, 73, 45, 14, 74, 46],
+      [11, 54, 24, 16, 55, 25],
+      [30, 46, 16, 2, 47, 17],
+
+      // 25
+      [8, 132, 106, 4, 133, 107],
+      [8, 75, 47, 13, 76, 48],
+      [7, 54, 24, 22, 55, 25],
+      [22, 45, 15, 13, 46, 16],
+
+      // 26
+      [10, 142, 114, 2, 143, 115],
+      [19, 74, 46, 4, 75, 47],
+      [28, 50, 22, 6, 51, 23],
+      [33, 46, 16, 4, 47, 17],
+
+      // 27
+      [8, 152, 122, 4, 153, 123],
+      [22, 73, 45, 3, 74, 46],
+      [8, 53, 23, 26, 54, 24],
+      [12, 45, 15, 28, 46, 16],
+
+      // 28
+      [3, 147, 117, 10, 148, 118],
+      [3, 73, 45, 23, 74, 46],
+      [4, 54, 24, 31, 55, 25],
+      [11, 45, 15, 31, 46, 16],
+
+      // 29
+      [7, 146, 116, 7, 147, 117],
+      [21, 73, 45, 7, 74, 46],
+      [1, 53, 23, 37, 54, 24],
+      [19, 45, 15, 26, 46, 16],
+
+      // 30
+      [5, 145, 115, 10, 146, 116],
+      [19, 75, 47, 10, 76, 48],
+      [15, 54, 24, 25, 55, 25],
+      [23, 45, 15, 25, 46, 16],
+
+      // 31
+      [13, 145, 115, 3, 146, 116],
+      [2, 74, 46, 29, 75, 47],
+      [42, 54, 24, 1, 55, 25],
+      [23, 45, 15, 28, 46, 16],
+
+      // 32
+      [17, 145, 115],
+      [10, 74, 46, 23, 75, 47],
+      [10, 54, 24, 35, 55, 25],
+      [19, 45, 15, 35, 46, 16],
+
+      // 33
+      [17, 145, 115, 1, 146, 116],
+      [14, 74, 46, 21, 75, 47],
+      [29, 54, 24, 19, 55, 25],
+      [11, 45, 15, 46, 46, 16],
+
+      // 34
+      [13, 145, 115, 6, 146, 116],
+      [14, 74, 46, 23, 75, 47],
+      [44, 54, 24, 7, 55, 25],
+      [59, 46, 16, 1, 47, 17],
+
+      // 35
+      [12, 151, 121, 7, 152, 122],
+      [12, 75, 47, 26, 76, 48],
+      [39, 54, 24, 14, 55, 25],
+      [22, 45, 15, 41, 46, 16],
+
+      // 36
+      [6, 151, 121, 14, 152, 122],
+      [6, 75, 47, 34, 76, 48],
+      [46, 54, 24, 10, 55, 25],
+      [2, 45, 15, 64, 46, 16],
+
+      // 37
+      [17, 152, 122, 4, 153, 123],
+      [29, 74, 46, 14, 75, 47],
+      [49, 54, 24, 10, 55, 25],
+      [24, 45, 15, 46, 46, 16],
+
+      // 38
+      [4, 152, 122, 18, 153, 123],
+      [13, 74, 46, 32, 75, 47],
+      [48, 54, 24, 14, 55, 25],
+      [42, 45, 15, 32, 46, 16],
+
+      // 39
+      [20, 147, 117, 4, 148, 118],
+      [40, 75, 47, 7, 76, 48],
+      [43, 54, 24, 22, 55, 25],
+      [10, 45, 15, 67, 46, 16],
+
+      // 40
+      [19, 148, 118, 6, 149, 119],
+      [18, 75, 47, 31, 76, 48],
+      [34, 54, 24, 34, 55, 25],
+      [20, 45, 15, 61, 46, 16]
+    ];
+
+    var qrRSBlock = function(totalCount, dataCount) {
+      var _this = {};
+      _this.totalCount = totalCount;
+      _this.dataCount = dataCount;
+      return _this;
+    };
+
+    var _this = {};
+
+    var getRsBlockTable = function(typeNumber, errorCorrectionLevel) {
+
+      switch(errorCorrectionLevel) {
+      case QRErrorCorrectionLevel.L :
+        return RS_BLOCK_TABLE[(typeNumber - 1) * 4 + 0];
+      case QRErrorCorrectionLevel.M :
+        return RS_BLOCK_TABLE[(typeNumber - 1) * 4 + 1];
+      case QRErrorCorrectionLevel.Q :
+        return RS_BLOCK_TABLE[(typeNumber - 1) * 4 + 2];
+      case QRErrorCorrectionLevel.H :
+        return RS_BLOCK_TABLE[(typeNumber - 1) * 4 + 3];
+      default :
+        return undefined;
+      }
+    };
+
+    _this.getRSBlocks = function(typeNumber, errorCorrectionLevel) {
+
+      var rsBlock = getRsBlockTable(typeNumber, errorCorrectionLevel);
+
+      if (typeof rsBlock == 'undefined') {
+        throw 'bad rs block @ typeNumber:' + typeNumber +
+            '/errorCorrectionLevel:' + errorCorrectionLevel;
+      }
+
+      var length = rsBlock.length / 3;
+
+      var list = [];
+
+      for (var i = 0; i < length; i += 1) {
+
+        var count = rsBlock[i * 3 + 0];
+        var totalCount = rsBlock[i * 3 + 1];
+        var dataCount = rsBlock[i * 3 + 2];
+
+        for (var j = 0; j < count; j += 1) {
+          list.push(qrRSBlock(totalCount, dataCount) );
+        }
+      }
+
+      return list;
+    };
+
+    return _this;
+  }();
+
+  //---------------------------------------------------------------------
+  // qrBitBuffer
+  //---------------------------------------------------------------------
+
+  var qrBitBuffer = function() {
+
+    var _buffer = [];
+    var _length = 0;
+
+    var _this = {};
+
+    _this.getBuffer = function() {
+      return _buffer;
+    };
+
+    _this.getAt = function(index) {
+      var bufIndex = Math.floor(index / 8);
+      return ( (_buffer[bufIndex] >>> (7 - index % 8) ) & 1) == 1;
+    };
+
+    _this.put = function(num, length) {
+      for (var i = 0; i < length; i += 1) {
+        _this.putBit( ( (num >>> (length - i - 1) ) & 1) == 1);
+      }
+    };
+
+    _this.getLengthInBits = function() {
+      return _length;
+    };
+
+    _this.putBit = function(bit) {
+
+      var bufIndex = Math.floor(_length / 8);
+      if (_buffer.length <= bufIndex) {
+        _buffer.push(0);
+      }
+
+      if (bit) {
+        _buffer[bufIndex] |= (0x80 >>> (_length % 8) );
+      }
+
+      _length += 1;
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // qrNumber
+  //---------------------------------------------------------------------
+
+  var qrNumber = function(data) {
+
+    var _mode = QRMode.MODE_NUMBER;
+    var _data = data;
+
+    var _this = {};
+
+    _this.getMode = function() {
+      return _mode;
+    };
+
+    _this.getLength = function(buffer) {
+      return _data.length;
+    };
+
+    _this.write = function(buffer) {
+
+      var data = _data;
+
+      var i = 0;
+
+      while (i + 2 < data.length) {
+        buffer.put(strToNum(data.substring(i, i + 3) ), 10);
+        i += 3;
+      }
+
+      if (i < data.length) {
+        if (data.length - i == 1) {
+          buffer.put(strToNum(data.substring(i, i + 1) ), 4);
+        } else if (data.length - i == 2) {
+          buffer.put(strToNum(data.substring(i, i + 2) ), 7);
+        }
+      }
+    };
+
+    var strToNum = function(s) {
+      var num = 0;
+      for (var i = 0; i < s.length; i += 1) {
+        num = num * 10 + chatToNum(s.charAt(i) );
+      }
+      return num;
+    };
+
+    var chatToNum = function(c) {
+      if ('0' <= c && c <= '9') {
+        return c.charCodeAt(0) - '0'.charCodeAt(0);
+      }
+      throw 'illegal char :' + c;
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // qrAlphaNum
+  //---------------------------------------------------------------------
+
+  var qrAlphaNum = function(data) {
+
+    var _mode = QRMode.MODE_ALPHA_NUM;
+    var _data = data;
+
+    var _this = {};
+
+    _this.getMode = function() {
+      return _mode;
+    };
+
+    _this.getLength = function(buffer) {
+      return _data.length;
+    };
+
+    _this.write = function(buffer) {
+
+      var s = _data;
+
+      var i = 0;
+
+      while (i + 1 < s.length) {
+        buffer.put(
+          getCode(s.charAt(i) ) * 45 +
+          getCode(s.charAt(i + 1) ), 11);
+        i += 2;
+      }
+
+      if (i < s.length) {
+        buffer.put(getCode(s.charAt(i) ), 6);
+      }
+    };
+
+    var getCode = function(c) {
+
+      if ('0' <= c && c <= '9') {
+        return c.charCodeAt(0) - '0'.charCodeAt(0);
+      } else if ('A' <= c && c <= 'Z') {
+        return c.charCodeAt(0) - 'A'.charCodeAt(0) + 10;
+      } else {
+        switch (c) {
+        case ' ' : return 36;
+        case '$' : return 37;
+        case '%' : return 38;
+        case '*' : return 39;
+        case '+' : return 40;
+        case '-' : return 41;
+        case '.' : return 42;
+        case '/' : return 43;
+        case ':' : return 44;
+        default :
+          throw 'illegal char :' + c;
+        }
+      }
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // qr8BitByte
+  //---------------------------------------------------------------------
+
+  var qr8BitByte = function(data) {
+
+    var _mode = QRMode.MODE_8BIT_BYTE;
+    var _data = data;
+    var _bytes = qrcode.stringToBytes(data);
+
+    var _this = {};
+
+    _this.getMode = function() {
+      return _mode;
+    };
+
+    _this.getLength = function(buffer) {
+      return _bytes.length;
+    };
+
+    _this.write = function(buffer) {
+      for (var i = 0; i < _bytes.length; i += 1) {
+        buffer.put(_bytes[i], 8);
+      }
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // qrKanji
+  //---------------------------------------------------------------------
+
+  var qrKanji = function(data) {
+
+    var _mode = QRMode.MODE_KANJI;
+    var _data = data;
+
+    var stringToBytes = qrcode.stringToBytesFuncs['SJIS'];
+    if (!stringToBytes) {
+      throw 'sjis not supported.';
+    }
+    !function(c, code) {
+      // self test for sjis support.
+      var test = stringToBytes(c);
+      if (test.length != 2 || ( (test[0] << 8) | test[1]) != code) {
+        throw 'sjis not supported.';
+      }
+    }('\u53cb', 0x9746);
+
+    var _bytes = stringToBytes(data);
+
+    var _this = {};
+
+    _this.getMode = function() {
+      return _mode;
+    };
+
+    _this.getLength = function(buffer) {
+      return ~~(_bytes.length / 2);
+    };
+
+    _this.write = function(buffer) {
+
+      var data = _bytes;
+
+      var i = 0;
+
+      while (i + 1 < data.length) {
+
+        var c = ( (0xff & data[i]) << 8) | (0xff & data[i + 1]);
+
+        if (0x8140 <= c && c <= 0x9FFC) {
+          c -= 0x8140;
+        } else if (0xE040 <= c && c <= 0xEBBF) {
+          c -= 0xC140;
+        } else {
+          throw 'illegal char at ' + (i + 1) + '/' + c;
+        }
+
+        c = ( (c >>> 8) & 0xff) * 0xC0 + (c & 0xff);
+
+        buffer.put(c, 13);
+
+        i += 2;
+      }
+
+      if (i < data.length) {
+        throw 'illegal char at ' + (i + 1);
+      }
+    };
+
+    return _this;
+  };
+
+  //=====================================================================
+  // GIF Support etc.
+  //
+
+  //---------------------------------------------------------------------
+  // byteArrayOutputStream
+  //---------------------------------------------------------------------
+
+  var byteArrayOutputStream = function() {
+
+    var _bytes = [];
+
+    var _this = {};
+
+    _this.writeByte = function(b) {
+      _bytes.push(b & 0xff);
+    };
+
+    _this.writeShort = function(i) {
+      _this.writeByte(i);
+      _this.writeByte(i >>> 8);
+    };
+
+    _this.writeBytes = function(b, off, len) {
+      off = off || 0;
+      len = len || b.length;
+      for (var i = 0; i < len; i += 1) {
+        _this.writeByte(b[i + off]);
+      }
+    };
+
+    _this.writeString = function(s) {
+      for (var i = 0; i < s.length; i += 1) {
+        _this.writeByte(s.charCodeAt(i) );
+      }
+    };
+
+    _this.toByteArray = function() {
+      return _bytes;
+    };
+
+    _this.toString = function() {
+      var s = '';
+      s += '[';
+      for (var i = 0; i < _bytes.length; i += 1) {
+        if (i > 0) {
+          s += ',';
+        }
+        s += _bytes[i];
+      }
+      s += ']';
+      return s;
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // base64EncodeOutputStream
+  //---------------------------------------------------------------------
+
+  var base64EncodeOutputStream = function() {
+
+    var _buffer = 0;
+    var _buflen = 0;
+    var _length = 0;
+    var _base64 = '';
+
+    var _this = {};
+
+    var writeEncoded = function(b) {
+      _base64 += String.fromCharCode(encode(b & 0x3f) );
+    };
+
+    var encode = function(n) {
+      if (n < 0) {
+        // error.
+      } else if (n < 26) {
+        return 0x41 + n;
+      } else if (n < 52) {
+        return 0x61 + (n - 26);
+      } else if (n < 62) {
+        return 0x30 + (n - 52);
+      } else if (n == 62) {
+        return 0x2b;
+      } else if (n == 63) {
+        return 0x2f;
+      }
+      throw 'n:' + n;
+    };
+
+    _this.writeByte = function(n) {
+
+      _buffer = (_buffer << 8) | (n & 0xff);
+      _buflen += 8;
+      _length += 1;
+
+      while (_buflen >= 6) {
+        writeEncoded(_buffer >>> (_buflen - 6) );
+        _buflen -= 6;
+      }
+    };
+
+    _this.flush = function() {
+
+      if (_buflen > 0) {
+        writeEncoded(_buffer << (6 - _buflen) );
+        _buffer = 0;
+        _buflen = 0;
+      }
+
+      if (_length % 3 != 0) {
+        // padding
+        var padlen = 3 - _length % 3;
+        for (var i = 0; i < padlen; i += 1) {
+          _base64 += '=';
+        }
+      }
+    };
+
+    _this.toString = function() {
+      return _base64;
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // base64DecodeInputStream
+  //---------------------------------------------------------------------
+
+  var base64DecodeInputStream = function(str) {
+
+    var _str = str;
+    var _pos = 0;
+    var _buffer = 0;
+    var _buflen = 0;
+
+    var _this = {};
+
+    _this.read = function() {
+
+      while (_buflen < 8) {
+
+        if (_pos >= _str.length) {
+          if (_buflen == 0) {
+            return -1;
+          }
+          throw 'unexpected end of file./' + _buflen;
+        }
+
+        var c = _str.charAt(_pos);
+        _pos += 1;
+
+        if (c == '=') {
+          _buflen = 0;
+          return -1;
+        } else if (c.match(/^\s$/) ) {
+          // ignore if whitespace.
+          continue;
+        }
+
+        _buffer = (_buffer << 6) | decode(c.charCodeAt(0) );
+        _buflen += 6;
+      }
+
+      var n = (_buffer >>> (_buflen - 8) ) & 0xff;
+      _buflen -= 8;
+      return n;
+    };
+
+    var decode = function(c) {
+      if (0x41 <= c && c <= 0x5a) {
+        return c - 0x41;
+      } else if (0x61 <= c && c <= 0x7a) {
+        return c - 0x61 + 26;
+      } else if (0x30 <= c && c <= 0x39) {
+        return c - 0x30 + 52;
+      } else if (c == 0x2b) {
+        return 62;
+      } else if (c == 0x2f) {
+        return 63;
+      } else {
+        throw 'c:' + c;
+      }
+    };
+
+    return _this;
+  };
+
+  //---------------------------------------------------------------------
+  // gifImage (B/W)
+  //---------------------------------------------------------------------
+
+  var gifImage = function(width, height) {
+
+    var _width = width;
+    var _height = height;
+    var _data = new Array(width * height);
+
+    var _this = {};
+
+    _this.setPixel = function(x, y, pixel) {
+      _data[y * _width + x] = pixel;
+    };
+
+    _this.write = function(out) {
+
+      //---------------------------------
+      // GIF Signature
+
+      out.writeString('GIF87a');
+
+      //---------------------------------
+      // Screen Descriptor
+
+      out.writeShort(_width);
+      out.writeShort(_height);
+
+      out.writeByte(0x80); // 2bit
+      out.writeByte(0);
+      out.writeByte(0);
+
+      //---------------------------------
+      // Global Color Map
+
+      // black
+      out.writeByte(0x00);
+      out.writeByte(0x00);
+      out.writeByte(0x00);
+
+      // white
+      out.writeByte(0xff);
+      out.writeByte(0xff);
+      out.writeByte(0xff);
+
+      //---------------------------------
+      // Image Descriptor
+
+      out.writeString(',');
+      out.writeShort(0);
+      out.writeShort(0);
+      out.writeShort(_width);
+      out.writeShort(_height);
+      out.writeByte(0);
+
+      //---------------------------------
+      // Local Color Map
+
+      //---------------------------------
+      // Raster Data
+
+      var lzwMinCodeSize = 2;
+      var raster = getLZWRaster(lzwMinCodeSize);
+
+      out.writeByte(lzwMinCodeSize);
+
+      var offset = 0;
+
+      while (raster.length - offset > 255) {
+        out.writeByte(255);
+        out.writeBytes(raster, offset, 255);
+        offset += 255;
+      }
+
+      out.writeByte(raster.length - offset);
+      out.writeBytes(raster, offset, raster.length - offset);
+      out.writeByte(0x00);
+
+      //---------------------------------
+      // GIF Terminator
+      out.writeString(';');
+    };
+
+    var bitOutputStream = function(out) {
+
+      var _out = out;
+      var _bitLength = 0;
+      var _bitBuffer = 0;
+
+      var _this = {};
+
+      _this.write = function(data, length) {
+
+        if ( (data >>> length) != 0) {
+          throw 'length over';
+        }
+
+        while (_bitLength + length >= 8) {
+          _out.writeByte(0xff & ( (data << _bitLength) | _bitBuffer) );
+          length -= (8 - _bitLength);
+          data >>>= (8 - _bitLength);
+          _bitBuffer = 0;
+          _bitLength = 0;
+        }
+
+        _bitBuffer = (data << _bitLength) | _bitBuffer;
+        _bitLength = _bitLength + length;
+      };
+
+      _this.flush = function() {
+        if (_bitLength > 0) {
+          _out.writeByte(_bitBuffer);
+        }
+      };
+
+      return _this;
+    };
+
+    var getLZWRaster = function(lzwMinCodeSize) {
+
+      var clearCode = 1 << lzwMinCodeSize;
+      var endCode = (1 << lzwMinCodeSize) + 1;
+      var bitLength = lzwMinCodeSize + 1;
+
+      // Setup LZWTable
+      var table = lzwTable();
+
+      for (var i = 0; i < clearCode; i += 1) {
+        table.add(String.fromCharCode(i) );
+      }
+      table.add(String.fromCharCode(clearCode) );
+      table.add(String.fromCharCode(endCode) );
+
+      var byteOut = byteArrayOutputStream();
+      var bitOut = bitOutputStream(byteOut);
+
+      // clear code
+      bitOut.write(clearCode, bitLength);
+
+      var dataIndex = 0;
+
+      var s = String.fromCharCode(_data[dataIndex]);
+      dataIndex += 1;
+
+      while (dataIndex < _data.length) {
+
+        var c = String.fromCharCode(_data[dataIndex]);
+        dataIndex += 1;
+
+        if (table.contains(s + c) ) {
+
+          s = s + c;
+
+        } else {
+
+          bitOut.write(table.indexOf(s), bitLength);
+
+          if (table.size() < 0xfff) {
+
+            if (table.size() == (1 << bitLength) ) {
+              bitLength += 1;
+            }
+
+            table.add(s + c);
+          }
+
+          s = c;
+        }
+      }
+
+      bitOut.write(table.indexOf(s), bitLength);
+
+      // end code
+      bitOut.write(endCode, bitLength);
+
+      bitOut.flush();
+
+      return byteOut.toByteArray();
+    };
+
+    var lzwTable = function() {
+
+      var _map = {};
+      var _size = 0;
+
+      var _this = {};
+
+      _this.add = function(key) {
+        if (_this.contains(key) ) {
+          throw 'dup key:' + key;
+        }
+        _map[key] = _size;
+        _size += 1;
+      };
+
+      _this.size = function() {
+        return _size;
+      };
+
+      _this.indexOf = function(key) {
+        return _map[key];
+      };
+
+      _this.contains = function(key) {
+        return typeof _map[key] != 'undefined';
+      };
+
+      return _this;
+    };
+
+    return _this;
+  };
+
+  var createDataURL = function(width, height, getPixel) {
+    var gif = gifImage(width, height);
+    for (var y = 0; y < height; y += 1) {
+      for (var x = 0; x < width; x += 1) {
+        gif.setPixel(x, y, getPixel(x, y) );
+      }
+    }
+
+    var b = byteArrayOutputStream();
+    gif.write(b);
+
+    var base64 = base64EncodeOutputStream();
+    var bytes = b.toByteArray();
+    for (var i = 0; i < bytes.length; i += 1) {
+      base64.writeByte(bytes[i]);
+    }
+    base64.flush();
+
+    return 'data:image/gif;base64,' + base64;
+  };
+
+  //---------------------------------------------------------------------
+  // returns qrcode function.
+
+  return qrcode;
+}();
+
+// multibyte support
+!function() {
+
+  qrcode.stringToBytesFuncs['UTF-8'] = function(s) {
+    // http://stackoverflow.com/questions/18729405/how-to-convert-utf8-string-to-byte-array
+    function toUTF8Array(str) {
+      var utf8 = [];
+      for (var i=0; i < str.length; i++) {
+        var charcode = str.charCodeAt(i);
+        if (charcode < 0x80) utf8.push(charcode);
+        else if (charcode < 0x800) {
+          utf8.push(0xc0 | (charcode >> 6),
+              0x80 | (charcode & 0x3f));
+        }
+        else if (charcode < 0xd800 || charcode >= 0xe000) {
+          utf8.push(0xe0 | (charcode >> 12),
+              0x80 | ((charcode>>6) & 0x3f),
+              0x80 | (charcode & 0x3f));
+        }
+        // surrogate pair
+        else {
+          i++;
+          // UTF-16 encodes 0x10000-0x10FFFF by
+          // subtracting 0x10000 and splitting the
+          // 20 bits of 0x0-0xFFFFF into two halves
+          charcode = 0x10000 + (((charcode & 0x3ff)<<10)
+            | (str.charCodeAt(i) & 0x3ff));
+          utf8.push(0xf0 | (charcode >>18),
+              0x80 | ((charcode>>12) & 0x3f),
+              0x80 | ((charcode>>6) & 0x3f),
+              0x80 | (charcode & 0x3f));
+        }
+      }
+      return utf8;
+    }
+    return toUTF8Array(s);
+  };
+
+}();
+
+(function (factory) {
+  if (typeof define === 'function' && define.amd) {
+      define([], factory);
+  } else if (typeof exports === 'object') {
+      module.exports = factory();
+  }
+}(function () {
+    return qrcode;
+}));
+
+    </script>
+
+    <script>
+      // サーバー(doGet)が注入する起動情報。改ざん可能な値として扱い、認可には使わない
+      window.BOOT = {
+        mode: '<?= bootMode ?>',
+        classCode: '<?= bootClassCode ?>',
+        shellUrl: '<?= bootShellUrl ?>',
+        shellOrigin: '<?= bootShellOrigin ?>'
+      };
+    </script>
+  </head>
+  <body>
+    <div id="root" class="h-full w-full"></div>
+
+    <script type="text/babel">
+      const { useState, useEffect, useCallback, useMemo, useRef, createContext, useContext } = React;
+
+      // ==========================================
+      // System & Utilities
+      // ==========================================
+      const BOOT = window.BOOT || { mode: 'legacy', classCode: '', shellUrl: '', shellOrigin: '' };
+      const sleep = (ms) => new Promise(r => setTimeout(r, ms));
+
+      const runGas = (funcName, ...args) => new Promise((resolve, reject) => {
+        if (typeof google === 'undefined' || !google.script) { reject(new Error('サーバーに接続できません')); return; }
+        google.script.run
+          .withSuccessHandler(res => { try { resolve(JSON.parse(res)); } catch (e) { resolve(res); } })
+          .withFailureHandler(reject)[funcName](...args);
+      });
+
+      // ── シェル(GitHub Pages)との postMessage ハンドシェイク（児童モード）──
+      // 受信は shellOrigin が設定されていればそのオリジンのみ許可。
+      // ID トークンの真正性はサーバー側検証が最終防衛線（Auth.gs）。
+      const Bridge = {
+        token: null,
+        waiters: [],
+        _post(msg) {
+          const target = BOOT.shellOrigin || '*';
+          try { window.parent.postMessage(msg, target); } catch (e) {}
+          try { if (window.top && window.top !== window.parent) window.top.postMessage(msg, target); } catch (e) {}
+        },
+        init() {
+          window.addEventListener('message', (ev) => {
+            if (BOOT.shellOrigin && ev.origin !== BOOT.shellOrigin) return;
+            const d = ev.data || {};
+            if (d.type === 'app:idToken' && typeof d.idToken === 'string' && d.idToken) {
+              this.token = d.idToken;
+              this.waiters.splice(0).forEach(w => w.done(d.idToken));
+            }
+          });
+        },
+        _wait(announce, timeoutMs) {
+          return new Promise((resolve, reject) => {
+            const iv = setInterval(announce, 700);
+            const w = {};
+            const finish = (ok, v) => {
+              clearInterval(iv); clearTimeout(tm);
+              this.waiters = this.waiters.filter(x => x !== w);
+              ok ? resolve(v) : reject(new Error('NO_SHELL'));
+            };
+            w.done = (t) => finish(true, t);
+            const tm = setTimeout(() => finish(false), timeoutMs);
+            this.waiters.push(w);
+            announce();
+          });
+        },
+        getToken(timeoutMs = 15000) {
+          if (this.token) return Promise.resolve(this.token);
+          return this._wait(() => this._post({ type: 'app:ready' }), timeoutMs);
+        },
+        refresh(timeoutMs = 20000) {
+          this.token = null;
+          return this._wait(() => this._post({ type: 'app:needToken' }), timeoutMs);
+        }
+      };
+      if (BOOT.mode === 'student') { Bridge.init(); Bridge._post({ type: 'app:ready' }); }
+
+      // ── API ラッパー ──
+      //  student: st<name>(idToken, classCode, ...) — トークン期限切れは自動再取得してリトライ
+      //  teacher: tp<name>(classCode, ...)
+      //  legacy : lg<name>(...)
+      //  LOCK_BUSY はサーバー混雑。指数バックオフで 3 回まで自動リトライ
+      const makeApi = (mode, classCode) => async (name, ...args) => {
+        for (let attempt = 0; ; attempt++) {
+          let res;
+          if (mode === 'student') {
+            const token = await Bridge.getToken();
+            res = await runGas('st' + name, token, classCode, ...args);
+          } else if (mode === 'teacher') {
+            res = await runGas('tp' + name, classCode, ...args);
+          } else {
+            res = await runGas('lg' + name, ...args);
+          }
+          if (res && res.success === false) {
+            if (res.code === 'TOKEN_EXPIRED' && mode === 'student' && attempt < 2) {
+              await Bridge.refresh();
+              continue;
+            }
+            if (res.code === 'LOCK_BUSY' && attempt < 3) {
+              await sleep(600 * Math.pow(2, attempt) + Math.random() * 400);
+              continue;
+            }
+            if (res.status === 'unregistered') return res; // legacy: 呼び出し元で処理
+            const err = new Error(res.error || res.message || 'エラーが発生しました');
+            err.code = res.code;
+            throw err;
+          }
+          return res;
+        }
+      };
+
+      // ポータル用（classCode を持たない tp* 呼び出し）
+      const portalCall = async (fnName, ...args) => {
+        const res = await runGas(fnName, ...args);
+        if (res && res.success === false) {
+          const err = new Error(res.error || res.message || 'エラーが発生しました');
+          err.code = res.code;
+          throw err;
+        }
+        return res;
+      };
+
+      // 記録系操作のモード差を吸収する
+      const makeDoAction = (mode, api) => async (action, data) => {
+        if (mode === 'student') {
+          if (action === 'save_pin') return api('Submit', { type: 'pin', ...data });
+          if (action === 'save_chat') return api('Submit', { type: 'chat', ...data });
+          if (action === 'toggle_reaction') return api('Submit', { type: 'reaction', ...data });
+          if (action === 'delete_pin') return api('DeleteMine', data.pin_id);
+          if (action === 'delete_chat') return api('DeleteMine', data.chat_id);
+          throw new Error('この操作はできません');
+        }
+        return api('ExecuteAction', JSON.stringify({ action, ...data }));
+      };
+
+      const PIN_COLORS = ['#f43f5e', '#0ea5e9', '#eab308', '#22c55e', '#a855f7'];
+      const REACTION_EMOJIS = ['👍'];
+
+      const isPointInPolygon = (point, vs) => {
+        let x = point.x, y = point.y, inside = false;
+        for (let i = 0, j = vs.length - 1; i < vs.length; j = i++) {
+          let xi = vs[i].x, yi = vs[i].y, xj = vs[j].x, yj = vs[j].y;
+          let intersect = ((yi > y) !== (yj > y)) && (x < (xj - xi) * (y - yi) / (yj - yi) + xi);
+          if (intersect) inside = !inside;
+        }
+        return inside;
+      };
+
+      const compressImage = async (file, maxDim = 600, quality = 0.7) => {
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = e => {
+            const img = new Image();
+            img.onload = () => {
+              const canvas = document.createElement('canvas');
+              let w = img.width, h = img.height;
+              if (w > h) { if (w > maxDim) { h *= maxDim / w; w = maxDim; } } else { if (h > maxDim) { w *= maxDim / h; h = maxDim; } }
+              canvas.width = w; canvas.height = h;
+              canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+              resolve(canvas.toDataURL('image/jpeg', quality));
+            };
+            img.onerror = reject; img.src = e.target.result;
+          };
+          reader.onerror = reject; reader.readAsDataURL(file);
+        });
+      };
+
+      const AppContext = createContext();
+
+      // ==========================================
+      // 画像(Images_画像シート)の遅延読込
+      //   'imgref:xxx' → api('GetImage') で Data URL に解決（メモリキャッシュ付き）
+      // ==========================================
+      const imageCache = new Map();
+      const resolveImage = (api, src) => {
+        if (!src || typeof src !== 'string' || !src.startsWith('imgref:')) return Promise.resolve(src);
+        if (imageCache.has(src)) return Promise.resolve(imageCache.get(src));
+        const p = api('GetImage', src).then(r => {
+          const d = (r && r.dataUrl) || '';
+          imageCache.set(src, d);
+          return d;
+        }).catch(() => { imageCache.delete(src); return ''; });
+        imageCache.set(src, p);
+        return p;
+      };
+
+      const useResolvedImage = (src) => {
+        const { api } = useContext(AppContext);
+        const isRef = src && typeof src === 'string' && src.startsWith('imgref:');
+        const [url, setUrl] = useState(isRef ? null : src);
+        useEffect(() => {
+          let alive = true;
+          if (src && typeof src === 'string' && src.startsWith('imgref:')) {
+            setUrl(null);
+            Promise.resolve(resolveImage(api, src)).then(u => { if (alive) setUrl(u); });
+          } else {
+            setUrl(src);
+          }
+          return () => { alive = false; };
+        }, [src]);
+        return url;
+      };
+
+      const SmartImg = ({ src, className, ...props }) => {
+        const url = useResolvedImage(src);
+        if (!url) return <div className={(className || '') + ' bg-slate-100 animate-pulse'} />;
+        return <img src={url} className={className} {...props} />;
+      };
+
+      // 写真アップロードボタン（Drive 不使用。圧縮して Images シートへ保存）
+      const ImageUploadButton = ({ onDone, maxDim = 600, quality = 0.7, className, children }) => {
+        const { api, showToast } = useContext(AppContext);
+        const inputRef = useRef(null);
+        const [busy, setBusy] = useState(false);
+        const handleFile = async (e) => {
+          const file = e.target.files && e.target.files[0];
+          e.target.value = '';
+          if (!file) return;
+          setBusy(true);
+          try {
+            let dataUrl = await compressImage(file, maxDim, quality);
+            if (dataUrl.length > 380000) dataUrl = await compressImage(file, Math.round(maxDim * 0.7), 0.55);
+            if (dataUrl.length > 380000) throw new Error('画像が大きすぎます');
+            const res = await api('UploadImage', dataUrl);
+            imageCache.set(res.imageRef, dataUrl);
+            onDone(res.imageRef);
+          } catch (err) {
+            showToast(err.message || '画像の保存に失敗しました', 'error');
+          }
+          setBusy(false);
+        };
+        return (
+          <React.Fragment>
+            <button onClick={() => inputRef.current && inputRef.current.click()} disabled={busy} className={className}>
+              {busy ? <span className="animate-pulse">保存中...</span> : children}
+            </button>
+            <input ref={inputRef} type="file" accept="image/*" className="hidden" onChange={handleFile} />
+          </React.Fragment>
+        );
+      };
+
+      // ==========================================
+      // UI Components
+      // ==========================================
+      const RubyText = ({ text, kana }) => (
+        <ruby style={{ rubyPosition: 'over' }}>
+          {text}<rt className="text-[0.65em] text-slate-500 opacity-80 font-normal select-none tracking-normal">{kana}</rt>
+        </ruby>
+      );
+
+      const LoadingOverlay = ({ label }) => (
+        <div className="fixed inset-0 bg-white/90 z-toast flex items-center justify-center backdrop-blur-sm no-print">
+          <div className="text-center flex flex-col items-center">
+            <div className="relative mb-6 w-16 h-16">
+              <div className="text-6xl text-brand-500 animate-bounce-pin absolute bottom-2 left-1/2 -translate-x-1/2 z-10 drop-shadow-md">📍</div>
+              <div className="w-10 h-3 bg-slate-300 rounded-[50%] animate-shadow-pulse absolute -bottom-1 left-1/2 -translate-x-1/2"></div>
+            </div>
+            <p className="text-xl font-extrabold text-brand-600 animate-pulse tracking-wider">
+              {label || <span><RubyText text="準備" kana="じゅんび" />しています...</span>}
+            </p>
+          </div>
+        </div>
+      );
+
+      const Toast = ({ msg, type = 'success', onHide }) => {
+        useEffect(() => { const t = setTimeout(onHide, 3000); return () => clearTimeout(t); }, [msg]);
+        if(!msg) return null;
+        return (
+          <div className="fixed bottom-24 sm:bottom-10 left-1/2 -translate-x-1/2 z-toast animate-pop-in bg-slate-800 text-white px-6 py-3.5 rounded-full shadow-float font-bold flex items-center gap-3 no-print max-w-[90vw]">
+            <span className="text-xl">{type === 'error' ? '⚠️' : '✨'}</span>
+            <span className="text-sm">{msg}</span>
+          </div>
+        );
+      };
+
+      const SvgIcon = {
+        Close: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-5 h-5 stroke-current"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>,
+        Image: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-6 h-6"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>,
+        Trash: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-4 h-4"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>,
+        Send: () => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="w-5 h-5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+      };
+
+      // ==========================================
+      // Feature Components（アプリ本体）
+      // ==========================================
+      const PinListModal = ({ pins, onClose, onSelectPin }) => {
+        const { state } = useContext(AppContext);
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 z-[9500] flex items-center justify-center p-4 backdrop-blur-sm animate-pop-in no-print" onClick={onClose} onPointerDown={e=>e.stopPropagation()} onPointerUp={e=>e.stopPropagation()}>
+            <div className="bg-white w-full max-w-4xl rounded-[24px] shadow-float overflow-hidden flex flex-col relative max-h-[85vh]" onClick={e => e.stopPropagation()}>
+              <div className="bg-brand-500 px-6 py-4 text-white font-bold flex justify-between items-center shrink-0">
+                <span className="flex items-center gap-3 text-lg">
+                  <span className="bg-white/20 p-2 rounded-xl">🔍</span>
+                  <span>かこんだ<RubyText text="範囲" kana="はんい" />のピン<RubyText text="一覧" kana="いちらん" /> <span className="opacity-80 text-sm ml-1">({pins.length}件)</span></span>
+                </span>
+                <button onClick={onClose} className="text-white/70 hover:text-white hover:bg-white/20 p-2 rounded-full transition"><SvgIcon.Close /></button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6 bg-surface custom-scrollbar">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                  {pins.map(pin => {
+                    const authorName = state.users.find(u => u.email === pin.email)?.name || '不明';
+                    return (
+                      <div key={pin.pin_id} onClick={() => onSelectPin(pin)} className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200 cursor-pointer hover:shadow-md hover:border-brand-300 hover:-translate-y-1 transition-all flex flex-col gap-3 group">
+                        <div className="flex gap-3 items-start">
+                          {pin.image_url ? (
+                            <SmartImg src={pin.image_url} className="w-20 h-20 rounded-xl object-cover border border-slate-100 shrink-0" />
+                          ) : (
+                            <div className="w-20 h-20 bg-slate-50 rounded-xl flex items-center justify-center text-3xl shrink-0 border border-slate-100 shadow-inner-soft">
+                              {pin.color.startsWith('#') ? '📍' : pin.color}
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <h4 className="font-bold text-slate-800 text-sm truncate mb-1 group-hover:text-brand-600 transition-colors">{pin.title}</h4>
+                            <p className="text-xs text-slate-500 line-clamp-3 leading-relaxed">{pin.memo || 'メモはありません'}</p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2 mt-auto pt-3 border-t border-slate-50">
+                          {pin.color.startsWith('#') ? <span className="w-3.5 h-3.5 rounded-full shadow-inner" style={{backgroundColor: pin.color}}></span> : <span className="text-sm leading-none">{pin.color}</span>}
+                          <span className="text-[11px] font-bold text-slate-600 bg-slate-100 px-2.5 py-1 rounded-full truncate">
+                             {authorName}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const TeacherConsole = ({ onClose }) => {
+        const { state, dispatch, showToast, ctx, api, doAction } = useContext(AppContext);
+        const [activeTab, setActiveTab] = useState('dashboard');
+        const [bulkRoster, setBulkRoster] = useState('');
+        const [newUnit, setNewUnit] = useState({ name: '', map_name: '基本マップ', url: '' });
+        const [newMap, setNewMap] = useState({ name: '', url: '', keepPins: true });
+        const [apiKeyInput, setApiKeyInput] = useState('');
+        const [customStampsInput, setCustomStampsInput] = useState('');
+        const [processing, setProcessing] = useState(false);
+
+        const [selectedStudent, setSelectedStudent] = useState(null);
+        const [aiAnalysis, setAiAnalysis] = useState('');
+        const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+        const students = state.users.filter(u => u.role !== 'teacher');
+        const handlePrint = () => window.print();
+
+        useEffect(() => {
+          if (state.activeUnit?.custom_stamps) {
+            setCustomStampsInput(state.activeUnit.custom_stamps.join(''));
+          } else {
+            setCustomStampsInput('📍🐛🌸🚗⚠️🏠❓💡');
+          }
+        }, [state.activeUnit?.custom_stamps]);
+
+        const executeAction = async (action, data, successMsg, resetCb) => {
+          setProcessing(true);
+          try {
+            await doAction(action, data);
+            showToast(successMsg);
+            if (resetCb) resetCb();
+          } catch(e) { showToast(e.message || 'エラーが発生しました', 'error'); }
+          setProcessing(false);
+        };
+
+        const handleSaveRoster = () => executeAction('save_users', { users: bulkRoster.split('\n').map(line => { const [email, name, group] = line.split(','); return email && name && group ? { email: email.trim(), name: name.trim(), group_id: group.trim() } : null; }).filter(Boolean) }, '名簿を登録しました', () => setBulkRoster(''));
+        const handleSaveUnit = () => executeAction('save_unit', { unit_id: `u_${Date.now()}`, name: newUnit.name, map_name: newUnit.map_name, map_url: newUnit.url }, '新しい単元を開始しました', () => setNewUnit({name:'', map_name: '基本マップ', url:''}));
+        const handleAddMap = () => executeAction('add_map', { unit_id: state.activeUnit.unit_id, map_id: `m_${Date.now()}`, name: newMap.name, map_url: newMap.url, copy_from_map_id: newMap.keepPins ? state.activeMapId : null }, '地図を追加しました', () => setNewMap({name:'', url:'', keepPins: true}));
+
+        const toggleSetting = async (field) => {
+          if(!state.activeUnit) return;
+          const prevVal = state.activeUnit[field] !== false;
+          const newVal = !prevVal;
+          dispatch(p => ({...p, activeUnit: {...p.activeUnit, [field]: newVal}}));
+          try {
+            await doAction(field === 'chat_enabled' ? 'toggle_chat' : 'toggle_stamp', { unit_id: state.activeUnit.unit_id, [field]: newVal });
+            showToast(`設定を${newVal ? 'ON' : 'OFF'}にしました`);
+          } catch(e) {
+            dispatch(p => ({...p, activeUnit: {...p.activeUnit, [field]: prevVal}}));
+            showToast('通信エラー', 'error');
+          }
+        };
+
+        const handleSaveStamps = () => {
+          const stampsArray = Array.from(customStampsInput.replace(/\s+/g, ''));
+          if (stampsArray.length === 0) return showToast('スタンプを入力してください', 'error');
+          executeAction('update_custom_stamps', { unit_id: state.activeUnit.unit_id, custom_stamps: stampsArray }, 'スタンプを更新しました', () => dispatch(p => ({...p, activeUnit: {...p.activeUnit, custom_stamps: stampsArray}})));
+        };
+
+        const handleSaveApiKey = () => executeAction('save_api_key', { api_key: apiKeyInput.trim() }, 'APIキーを保存しました', () => { dispatch(p => ({...p, hasApiKey: true})); setApiKeyInput(''); });
+
+        const handleAnalyzeStudent = async () => {
+          if (!selectedStudent) return;
+          setIsAnalyzing(true); setAiAnalysis('');
+          try {
+            // クラスモードでは email を露出させないため uid（匿名ID）で指定し、サーバーが解決する
+            const payload = ctx.mode === 'legacy'
+              ? { unit_id: state.activeUnit.unit_id, email: selectedStudent.email }
+              : { unit_id: state.activeUnit.unit_id, uid: selectedStudent.email };
+            const res = await api('GenerateAIPortfolio', JSON.stringify(payload));
+            setAiAnalysis(res.portfolio);
+          } catch(e) { showToast(e.message || '分析エラー', 'error'); }
+          setIsAnalyzing(false);
+        };
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 z-modal flex justify-end print-full" onPointerDown={e=>e.stopPropagation()} onPointerUp={e=>e.stopPropagation()}>
+            <div className="w-full max-w-4xl bg-surface h-full shadow-float animate-slide-in-right flex flex-col relative print-full">
+
+              <div className="bg-slate-800 text-white px-6 py-4 shrink-0 flex justify-between items-center no-print">
+                <h2 className="text-xl font-bold flex items-center gap-2"><span className="bg-white/10 p-1.5 rounded-lg">🏫</span> 教師用コンソール</h2>
+                <button onClick={onClose} className="text-white/70 hover:text-white hover:bg-white/20 p-2 rounded-full transition"><SvgIcon.Close /></button>
+              </div>
+
+              <div className="flex px-2 bg-white border-b border-slate-200 overflow-x-auto shrink-0 custom-scrollbar no-print">
+                {[
+                  { id: 'dashboard', icon: '📊', label: '学習分析' },
+                  { id: 'unit', icon: '🗺️', label: '単元・設定' },
+                  { id: 'roster', icon: '👥', label: '名簿登録' },
+                  { id: 'settings', icon: '⚙️', label: 'AI設定' }
+                ].map(tab => (
+                  <button key={tab.id} onClick={()=>setActiveTab(tab.id)} className={`px-5 py-4 font-bold text-sm whitespace-nowrap border-b-2 transition-colors flex items-center gap-2 ${activeTab===tab.id ? 'border-brand-500 text-brand-600' : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}>
+                    <span>{tab.icon}</span>{tab.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="flex-1 overflow-y-auto relative flex flex-col print-full">
+
+                {/* 📊 ダッシュボード */}
+                {activeTab === 'dashboard' && (
+                  <div className="flex flex-1 overflow-hidden print-full">
+                    <div className="w-1/3 border-r border-slate-200 bg-white flex flex-col no-print">
+                      <div className="p-4 bg-slate-50 font-bold text-slate-600 text-xs border-b border-slate-200 shrink-0 uppercase tracking-wider">児童リスト ({students.length})</div>
+                      <div className="flex-1 overflow-y-auto p-2 space-y-1 custom-scrollbar">
+                        {students.map(s => (
+                          <button key={s.email} onClick={() => {setSelectedStudent(s); setAiAnalysis('');}}
+                                  className={`w-full text-left p-3 rounded-xl transition-all flex items-center gap-3 ${selectedStudent?.email === s.email ? 'bg-brand-50 border border-brand-200 text-brand-700 shadow-sm' : 'hover:bg-slate-50 text-slate-600 border border-transparent'}`}>
+                            <span className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 ${selectedStudent?.email === s.email ? 'bg-brand-500' : 'bg-slate-300'}`}>
+                              {(s.group_id || '?').charAt(0)}
+                            </span>
+                            <div className="flex-1 truncate font-bold text-sm">{s.name}</div>
+                          </button>
+                        ))}
+                        {students.length === 0 && <p className="text-slate-400 text-sm p-4 text-center mt-10">まだ児童が参加していません</p>}
+                      </div>
+                    </div>
+
+                    <div className="flex-1 bg-surface flex flex-col overflow-hidden relative print-full">
+                      {selectedStudent ? (() => {
+                        const studentPins = state.pins.filter(p => p.email === selectedStudent.email);
+                        const studentChats = state.chats.filter(c => c.email === selectedStudent.email);
+
+                        return (
+                          <div className="flex-1 overflow-y-auto p-8 space-y-8 custom-scrollbar print-full">
+                            <div className="flex justify-between items-end">
+                              <div>
+                                <div className="text-sm font-bold text-brand-600 mb-1">{selectedStudent.group_id}</div>
+                                <h2 className="text-3xl font-extrabold text-slate-800">{selectedStudent.name} <span className="text-lg font-normal text-slate-500 ml-1">の活動記録</span></h2>
+                              </div>
+                              <div className="flex gap-3 no-print">
+                                <button onClick={handlePrint} className="bg-white border border-slate-200 text-slate-600 font-bold px-4 py-2 rounded-xl shadow-sm hover:bg-slate-50 transition flex items-center gap-2 text-sm">🖨️ 印刷</button>
+                                <div className="bg-white px-5 py-2 rounded-xl shadow-sm border border-slate-200 text-center"><div className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">ピン</div><div className="text-xl font-extrabold text-accent-500">{studentPins.length}</div></div>
+                                <div className="bg-white px-5 py-2 rounded-xl shadow-sm border border-slate-200 text-center"><div className="text-[10px] text-slate-400 font-bold uppercase tracking-wide">発言</div><div className="text-xl font-extrabold text-brand-500">{studentChats.length}</div></div>
+                              </div>
+                            </div>
+
+                            <div className="bg-gradient-to-br from-indigo-500 via-purple-500 to-fuchsia-500 rounded-[24px] p-[2px] shadow-float print-full">
+                              <div className="bg-white rounded-[22px] p-6 h-full">
+                                <div className="flex justify-between items-center mb-4 no-print">
+                                  <h3 className="font-bold text-indigo-900 text-lg flex items-center gap-2"><span>✨</span> AI ポートフォリオ生成</h3>
+                                  {state.hasApiKey ? (
+                                    <button onClick={handleAnalyzeStudent} disabled={isAnalyzing} className="bg-indigo-50 text-indigo-600 border border-indigo-100 hover:bg-indigo-100 font-bold px-4 py-2 rounded-full text-sm transition shadow-sm">
+                                      {isAnalyzing ? '分析中...' : (aiAnalysis ? '再分析する' : '分析を実行する')}
+                                    </button>
+                                  ) : (
+                                    <button onClick={() => setActiveTab('settings')} className="bg-accent-50 text-accent-600 font-bold px-4 py-2 rounded-full text-sm animate-pulse hover:bg-accent-100 transition border border-accent-100">
+                                      APIキーを設定してください
+                                    </button>
+                                  )}
+                                </div>
+                                {isAnalyzing && (
+                                  <div className="py-12 flex flex-col items-center justify-center text-indigo-400 animate-pulse no-print">
+                                    <span className="text-5xl mb-4 drop-shadow-sm">🧠</span>
+                                    <p className="font-bold tracking-wide">活動記録をAIが読み込んでいます...</p>
+                                  </div>
+                                )}
+                                {aiAnalysis && !isAnalyzing && (
+                                  <div className="bg-indigo-50/50 p-5 rounded-xl text-sm font-medium text-slate-700 whitespace-pre-wrap leading-relaxed border border-indigo-100/50">
+                                    {aiAnalysis}
+                                  </div>
+                                )}
+                                {!aiAnalysis && !isAnalyzing && (
+                                  <div className="py-10 text-center no-print">
+                                    <p className="text-slate-400 text-sm">{state.hasApiKey ? 'ボタンを押すと、ピンの内容や発言から、この児童の「興味関心」や「良いところ」を自動でまとめます。' : 'AI分析を利用するには、上のボタンからGemini APIキーを設定してください。'}</p>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <div>
+                              <h4 className="font-bold text-slate-700 mb-4 flex items-center gap-2"><span>📍</span> 刺したピン一覧</h4>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                {studentPins.map(p => (
+                                  <div key={p.pin_id} className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm flex items-start gap-4">
+                                    {p.image_url ? <SmartImg src={p.image_url} className="w-16 h-16 rounded-xl object-cover shrink-0 border border-slate-100" /> : <div className="w-16 h-16 bg-slate-50 rounded-xl flex items-center justify-center text-2xl shrink-0 border border-slate-100 shadow-inner-soft">{p.color.startsWith('#')?'📍':p.color}</div>}
+                                    <div className="flex-1 min-w-0">
+                                      <h5 className="font-bold text-slate-800 text-sm truncate mb-1">{p.title}</h5>
+                                      <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">{p.memo || 'メモなし'}</p>
+                                    </div>
+                                  </div>
+                                ))}
+                                {studentPins.length === 0 && <p className="text-sm text-slate-400 col-span-2 bg-slate-50 p-4 rounded-xl text-center border border-slate-100">まだピンを刺していません</p>}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })() : (
+                        <div className="flex-1 flex flex-col items-center justify-center text-slate-400 font-bold no-print">
+                          <span className="text-4xl mb-4 opacity-50">👈</span>
+                          左のリストから児童を選択してください
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* 🗺️ 単元・設定 */}
+                {activeTab === 'unit' && (
+                  <div className="max-w-3xl mx-auto w-full p-6 sm:p-10 space-y-8 animate-pop-in">
+                    <section>
+                      <h3 className="font-extrabold text-slate-800 text-lg mb-4 flex items-center gap-2"><span>💬</span> コミュニケーション設定</h3>
+                      <div className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm flex items-center justify-between">
+                        <div>
+                          <p className="font-bold text-slate-800">みんなのひろば（チャット）</p>
+                          <p className="text-xs text-slate-500 mt-1">※オフにしてもピンに対するコメントは可能です</p>
+                        </div>
+                        <button onClick={()=>toggleSetting('chat_enabled')} className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition-colors focus:outline-none ${state.activeUnit?.chat_enabled ? 'bg-brand-500' : 'bg-slate-200'}`}>
+                          <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform shadow-sm ${state.activeUnit?.chat_enabled ? 'translate-x-7' : 'translate-x-1'}`}/>
+                        </button>
+                      </div>
+                    </section>
+
+                    <section>
+                      <h3 className="font-extrabold text-slate-800 text-lg mb-4 flex items-center gap-2"><span>📍</span> ピンとスタンプの設定</h3>
+                      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                        <div className="flex items-center justify-between p-5 border-b border-slate-100">
+                          <div>
+                            <p className="font-bold text-slate-800">絵文字スタンプピンの使用</p>
+                            <p className="text-xs text-slate-500 mt-1">オンにすると、ピンの代わりに指定したスタンプを使えます</p>
+                          </div>
+                          <button onClick={()=>toggleSetting('stamp_enabled')} className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition-colors focus:outline-none ${state.activeUnit?.stamp_enabled !== false ? 'bg-brand-500' : 'bg-slate-200'}`}>
+                            <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform shadow-sm ${state.activeUnit?.stamp_enabled !== false ? 'translate-x-7' : 'translate-x-1'}`}/>
+                          </button>
+                        </div>
+
+                        {state.activeUnit?.stamp_enabled !== false && (
+                          <div className="p-5 bg-slate-50 animate-pop-in">
+                            <p className="font-bold text-slate-700 text-sm mb-1">使用するスタンプのカスタマイズ</p>
+                            <p className="text-xs text-slate-500 mb-3">ピンの代わりに使える絵文字を連続で入力してください</p>
+                            <div className="flex gap-3">
+                              <input type="text" value={customStampsInput} onChange={e=>setCustomStampsInput(e.target.value)} placeholder="📍🐛🌸🚗⚠️🏠❓💡" className="flex-1 px-4 py-3 border border-slate-200 rounded-xl bg-white text-xl tracking-widest focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition shadow-inner-soft" />
+                              <button onClick={handleSaveStamps} disabled={processing} className="bg-slate-800 text-white font-bold px-6 py-3 rounded-xl shadow-sm hover:bg-slate-700 transition whitespace-nowrap">更新</button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </section>
+
+                    <section>
+                      <h3 className="font-extrabold text-slate-800 text-lg mb-4 flex items-center gap-2"><span>🗺️</span> 地図の管理</h3>
+                      <div className="space-y-4">
+                        {state.activeUnit && (
+                          <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm border-l-4 border-l-accent-500 relative overflow-hidden group">
+                            <div className="absolute top-0 right-0 bg-accent-50 text-accent-600 text-[10px] font-bold px-3 py-1 rounded-bl-xl border-b border-l border-accent-100">追加</div>
+                            <h4 className="font-bold text-slate-800 mb-1">今の単元に「新しい地図」を追加</h4>
+                            <p className="text-xs text-slate-500 mb-5">予想と結果の比較など、タブで切り替える地図を追加します。</p>
+
+                            <div className="space-y-4">
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-500 mb-1 uppercase tracking-wider">タブの名前</label>
+                                <input type="text" placeholder="例：探検後マップ" value={newMap.name} onChange={e=>setNewMap({...newMap, name: e.target.value})} className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50 text-sm font-bold focus:ring-2 focus:ring-brand-500 outline-none transition" />
+                              </div>
+                              <div>
+                                <label className="block text-[11px] font-bold text-slate-500 mb-1 uppercase tracking-wider">背景画像</label>
+                                <div className="flex gap-2 items-center">
+                                  <div className="flex-1 px-4 py-3 border border-slate-200 rounded-xl bg-slate-100 text-sm font-bold text-slate-500">
+                                    {newMap.url ? '✅ 画像を選択済み' : '未選択'}
+                                  </div>
+                                  <ImageUploadButton maxDim={1400} quality={0.75} onDone={(ref)=>setNewMap(p=>({...p, url: ref}))} className="bg-brand-50 text-brand-600 border border-brand-200 font-bold px-4 py-3 rounded-xl hover:bg-brand-500 hover:text-white transition whitespace-nowrap flex items-center gap-2">
+                                    <span>📁</span> 画像を選ぶ
+                                  </ImageUploadButton>
+                                </div>
+                              </div>
+                              <label className="flex items-center gap-3 p-4 bg-accent-50/50 border border-accent-100 rounded-xl cursor-pointer hover:bg-accent-50 transition">
+                                <input type="checkbox" checked={newMap.keepPins} onChange={e=>setNewMap({...newMap, keepPins: e.target.checked})} className="w-5 h-5 accent-accent-500 rounded cursor-pointer" />
+                                <span className="text-sm font-bold text-accent-900">いま表示している地図の「ピン」をそのまま引き継ぐ</span>
+                              </label>
+                              <button onClick={handleAddMap} disabled={processing} className="w-full bg-accent-500 text-white py-3.5 rounded-xl font-bold hover:bg-accent-600 transition shadow-sm">この地図を追加する</button>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-sm border-l-4 border-l-brand-500 opacity-80 hover:opacity-100 transition">
+                          <h4 className="font-bold text-slate-800 mb-1">全てリセットして「新しい単元」を作る</h4>
+                          <p className="text-xs text-slate-500 mb-5">児童の画面が完全に切り替わり、ゼロからのスタートになります。</p>
+                          <div className="space-y-4">
+                            <div>
+                              <input type="text" placeholder="単元のなまえ（例：町探検）" value={newUnit.name} onChange={e=>setNewUnit({...newUnit, name: e.target.value})} className="w-full px-4 py-3 border border-slate-200 rounded-xl bg-slate-50 text-sm font-bold focus:ring-2 focus:ring-brand-500 outline-none transition" />
+                            </div>
+                            <div className="flex gap-2 items-center">
+                              <div className="flex-1 px-4 py-3 border border-slate-200 rounded-xl bg-slate-100 text-sm font-bold text-slate-500">
+                                {newUnit.url ? '✅ 画像を選択済み' : '未選択'}
+                              </div>
+                              <ImageUploadButton maxDim={1400} quality={0.75} onDone={(ref)=>setNewUnit(p=>({...p, url: ref}))} className="bg-brand-50 text-brand-600 border border-brand-200 font-bold px-4 py-3 rounded-xl hover:bg-brand-500 hover:text-white transition whitespace-nowrap flex items-center gap-2">
+                                <span>📁</span> 画像を選ぶ
+                              </ImageUploadButton>
+                            </div>
+                            <button onClick={handleSaveUnit} disabled={processing} className="w-full bg-brand-500 text-white py-3.5 rounded-xl font-bold hover:bg-brand-600 transition shadow-sm">まっさらな状態で単元を開始</button>
+                          </div>
+                        </div>
+                      </div>
+                    </section>
+                  </div>
+                )}
+
+                {/* 👥 名簿登録 */}
+                {activeTab === 'roster' && (
+                  <div className="max-w-3xl mx-auto w-full p-6 sm:p-10 animate-pop-in">
+                    <div className="bg-white p-8 rounded-3xl shadow-soft border border-slate-100">
+                      <h3 className="font-extrabold text-slate-800 text-xl mb-2 flex items-center gap-2"><span>👥</span> 児童の登録（名簿）</h3>
+                      {ctx.mode !== 'legacy' && (
+                        <div className="bg-brand-50 border border-brand-100 rounded-xl p-4 mb-4 text-sm text-brand-900 font-medium">
+                          💡 児童は「クラス用URL（QRコード）」から自分で参加申請もできます。ここでの一括登録は<strong>承認なしで即参加</strong>になります。参加申請の承認はクラス管理画面で行ってください。
+                        </div>
+                      )}
+                      <p className="text-sm text-slate-500 mb-6 leading-relaxed">スプレッドシートやエクセルからコピーして貼り付けてください。<br/>書式: <code className="bg-slate-100 px-2 py-1 rounded text-brand-600 font-bold">メールアドレス, 表示名, 班名</code></p>
+
+                      <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mb-4 font-mono text-xs text-slate-400">
+                        001@school.ed.jp, 探検太郎, 1班<br/>
+                        002@school.ed.jp, みっけ花子, 2班
+                      </div>
+
+                      <textarea value={bulkRoster} onChange={e=>setBulkRoster(e.target.value)} className="w-full h-64 p-5 border border-slate-200 rounded-2xl mb-6 bg-white focus:ring-2 focus:ring-brand-500 focus:border-brand-500 outline-none transition shadow-inner-soft font-mono text-sm leading-loose" placeholder="ここに貼り付け..."></textarea>
+                      <button onClick={handleSaveRoster} disabled={processing} className="w-full bg-brand-600 text-white py-4 rounded-xl font-bold text-lg hover:bg-brand-700 transition shadow-float">名簿を一括登録する</button>
+                    </div>
+                  </div>
+                )}
+
+                {/* ⚙️ AI設定 */}
+                {activeTab === 'settings' && (
+                  <div className="max-w-3xl mx-auto w-full p-6 sm:p-10 animate-pop-in">
+                    <div className="bg-white p-8 rounded-3xl shadow-soft border border-slate-100">
+                      <h3 className="font-extrabold text-slate-800 text-xl mb-2 flex items-center gap-2"><span>🤖</span> AI機能（Gemini API）の設定</h3>
+                      <p className="text-sm text-slate-500 mb-6">学習分析ダッシュボードで児童の活動をAIに分析させるには、GoogleのGemini APIキーが必要です。キーはこのクラスのスプレッドシート（Settingsシート）にのみ保存されます。</p>
+
+                      <div className="mb-8 flex items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200">
+                         <span className="text-sm font-bold text-slate-600">現在の状態:</span>
+                         {state.hasApiKey ?
+                           <span className="px-3 py-1 bg-emerald-100 text-emerald-800 rounded-full text-xs font-bold border border-emerald-200 flex items-center gap-1"><span>✅</span> 設定済み</span> :
+                           <span className="px-3 py-1 bg-rose-100 text-rose-800 rounded-full text-xs font-bold border border-rose-200 animate-pulse flex items-center gap-1"><span>❌</span> 未設定</span>}
+                      </div>
+
+                      <div className="space-y-4 mb-8">
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-500 mb-2 uppercase tracking-wider">APIキーを入力</label>
+                          <input type="password" placeholder="AIzaSy..." value={apiKeyInput} onChange={e=>setApiKeyInput(e.target.value)} className="w-full p-4 border border-slate-200 rounded-xl bg-slate-50 focus:bg-white focus:ring-2 focus:ring-brand-500 outline-none transition font-mono text-lg" />
+                        </div>
+                        <button onClick={handleSaveApiKey} disabled={processing} className="w-full bg-slate-800 text-white py-4 rounded-xl font-bold hover:bg-slate-900 transition shadow-md">APIキーを保存して有効化</button>
+                      </div>
+
+                      <div className="p-6 bg-brand-50 rounded-2xl text-sm text-brand-900 border border-brand-100">
+                         <p className="font-bold text-base mb-3 flex items-center gap-2"><span>💡</span> APIキーの取得方法（無料）</p>
+                         <ol className="list-decimal ml-5 space-y-3 font-medium">
+                           <li><a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="underline font-bold text-brand-600 hover:text-brand-800 transition">Google AI Studio</a> にアクセスします。</li>
+                           <li>Googleアカウントでログインし、<strong>「Create API key」</strong>をクリックして新しいキーを作成します。</li>
+                           <li>作成されたキーをコピーし、上の入力欄に貼り付けて保存してください。</li>
+                         </ol>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      // ★ リアクションコンポーネント
+      const ReactionBar = ({ targetType, targetId }) => {
+        const { state, dispatch, doAction } = useContext(AppContext);
+        const myReactions = state.reactions.filter(r => r.target_id === targetId && r.target_type === targetType);
+        const emojis = REACTION_EMOJIS;
+
+        const toggleReaction = async (emoji) => {
+          const existing = myReactions.find(r => r.email === state.user.email && r.emoji === emoji);
+          if (existing) {
+            dispatch(p => ({...p, reactions: p.reactions.filter(r => r !== existing)}));
+          } else {
+            const newReaction = { reaction_id: 'r_temp_'+Date.now(), unit_id: state.activeUnit.unit_id, email: state.user.email, target_type: targetType, target_id: targetId, emoji };
+            dispatch(p => ({...p, reactions: [...p.reactions, newReaction]}));
+          }
+          try { await doAction('toggle_reaction', { unit_id: state.activeUnit.unit_id, target_type: targetType, target_id: targetId, emoji }); }
+          catch(e) { /* 次回の同期で整合する */ }
+        };
+
+        const counts = {};
+        myReactions.forEach(r => { counts[r.emoji] = (counts[r.emoji] || 0) + 1; });
+
+        return (
+          <div className="flex gap-2 items-center flex-wrap">
+            <div className="flex gap-1 bg-slate-50 rounded-full px-2 py-1 border border-slate-200">
+              {emojis.map(emoji => {
+                const isPressed = myReactions.some(r => r.email === state.user.email && r.emoji === emoji);
+                return (
+                  <button key={emoji} onClick={() => toggleReaction(emoji)} className={`w-8 h-8 flex items-center justify-center rounded-full transition-all duration-200 ${isPressed ? 'bg-brand-100 border border-brand-200 shadow-sm scale-110' : 'hover:bg-slate-200 opacity-60 hover:opacity-100 grayscale hover:grayscale-0'}`}>
+                    <span className="text-lg leading-none">{emoji}</span>
+                  </button>
+                );
+              })}
+            </div>
+            {Object.entries(counts).map(([emoji, count]) => count > 0 && (
+               <div key={emoji} className="text-xs font-bold text-slate-600 bg-white border border-slate-200 px-2.5 py-1 rounded-full shadow-sm flex items-center gap-1">
+                 <span>{emoji}</span><span className="text-brand-600">{count}</span>
+               </div>
+            ))}
+          </div>
+        );
+      };
+
+      const PinCreateModal = ({ pos, onClose }) => {
+        const { state, showToast, dispatch, doAction } = useContext(AppContext);
+        const [form, setForm] = useState({ color: PIN_COLORS[0], title: '', memo: '', imageUrl: null });
+        const [loading, setLoading] = useState(false);
+
+        const handleSubmit = async () => {
+          if (!form.title) return showToast(<span><RubyText text="名前" kana="なまえ" />をかいてね</span>, 'error');
+          setLoading(true);
+          const newPinId = `p_${Date.now()}`;
+          const payload = {
+            pin_id: newPinId, unit_id: state.activeUnit.unit_id,
+            map_id: state.activeMapId, email: state.user.email, x: pos.x, y: pos.y, color: form.color,
+            title: form.title, memo: form.memo, image_url: form.imageUrl || ''
+          };
+          try {
+            await doAction('save_pin', payload);
+            showToast('ピンをさしました！');
+            dispatch(p => ({...p, pins: [...p.pins, payload]}));
+            onClose();
+          } catch(e) { showToast(e.message || 'エラーがおきました', 'error'); }
+          setLoading(false);
+        };
+
+        const customStamps = state.activeUnit?.custom_stamps || [];
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 z-modal flex items-center justify-center p-4 backdrop-blur-sm animate-pop-in"
+               onPointerDown={e=>e.stopPropagation()} onPointerUp={e=>e.stopPropagation()}>
+            <div className="bg-white w-full max-w-md rounded-[24px] shadow-float flex flex-col overflow-hidden">
+              <div className="bg-accent-500 px-6 py-4 text-white font-bold flex justify-between items-center relative">
+                <span className="flex items-center gap-2 text-lg">
+                  <span className="bg-white/20 p-1.5 rounded-lg leading-none">📍</span>
+                  <span>ピンをさす</span>
+                </span>
+                <button onClick={onClose} className="text-white/70 hover:text-white hover:bg-white/20 p-2 rounded-full transition"><SvgIcon.Close /></button>
+              </div>
+
+              <div className="p-6 space-y-6">
+                <div>
+                  <p className="text-[11px] font-bold text-slate-500 mb-2 uppercase tracking-wider">アイコンをえらぶ</p>
+                  <div className="flex flex-wrap gap-2 justify-center bg-slate-50 p-4 rounded-2xl border border-slate-100 shadow-inner-soft">
+                    {PIN_COLORS.map(c => (
+                      <button key={c} onClick={() => setForm(p=>({...p, color: c}))} className={`w-10 h-10 rounded-full border-[3px] transition-transform ${form.color === c ? 'border-slate-800 scale-110 shadow-md' : 'border-white shadow-sm hover:scale-105'}`} style={{backgroundColor: c}} />
+                    ))}
+
+                    {state.activeUnit?.stamp_enabled !== false && customStamps.length > 0 && (
+                      <React.Fragment>
+                        <div className="w-full h-px bg-slate-200 my-2"></div>
+                        {customStamps.map(stamp => (
+                          <button key={stamp} onClick={() => setForm(p=>({...p, color: stamp}))} className={`text-2xl w-11 h-11 flex items-center justify-center rounded-full border-[3px] transition-all ${form.color === stamp ? 'border-accent-500 bg-white scale-110 shadow-md' : 'border-transparent hover:bg-slate-200'}`}>
+                            {stamp}
+                          </button>
+                        ))}
+                      </React.Fragment>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-4">
+                  <input type="text" placeholder="みつけたものの なまえ" value={form.title} onChange={e=>setForm(p=>({...p, title: e.target.value}))} className="w-full px-5 py-4 border border-slate-200 rounded-xl font-bold bg-slate-50 focus:bg-white focus:ring-2 focus:ring-accent-500 focus:border-accent-500 outline-none transition shadow-sm" />
+                  <textarea placeholder="メモ（みつけたこと）" value={form.memo} onChange={e=>setForm(p=>({...p, memo: e.target.value}))} className="w-full px-5 py-4 border border-slate-200 rounded-xl font-medium bg-slate-50 focus:bg-white focus:ring-2 focus:ring-accent-500 focus:border-accent-500 outline-none resize-none transition shadow-sm min-h-[100px] leading-relaxed" />
+                </div>
+
+                {!form.imageUrl ? (
+                  <ImageUploadButton maxDim={600} quality={0.7} onDone={(ref)=>setForm(p=>({...p, imageUrl: ref}))} className="block w-full p-5 border-2 border-dashed border-slate-300 rounded-2xl text-center cursor-pointer bg-slate-50 hover:bg-accent-50 hover:border-accent-300 transition group">
+                    <span className="flex flex-col items-center justify-center gap-2">
+                      <span className="text-slate-400 group-hover:text-accent-500 transition-colors"><SvgIcon.Image /></span>
+                      <span className="text-slate-500 font-bold text-sm group-hover:text-accent-600 transition-colors">
+                        <RubyText text="写真" kana="しゃしん" /><span className="inline-block">をつける</span>
+                      </span>
+                    </span>
+                  </ImageUploadButton>
+                ) : (
+                  <div className="relative rounded-2xl overflow-hidden shadow-sm border border-slate-200 group">
+                    <SmartImg src={form.imageUrl} className="w-full h-40 object-cover" />
+                    <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                    <button onClick={() => setForm(p=>({...p, imageUrl: null}))} className="absolute top-3 right-3 bg-white/90 backdrop-blur-sm text-slate-800 w-8 h-8 flex items-center justify-center rounded-full shadow-md font-bold hover:bg-rose-500 hover:text-white transition"><SvgIcon.Close /></button>
+                  </div>
+                )}
+                <button onClick={handleSubmit} disabled={loading} className="w-full bg-accent-500 text-white font-bold text-lg py-4 rounded-xl shadow-float hover:bg-accent-600 active:scale-95 transition-all flex items-center justify-center gap-2">
+                  {loading ? <span><RubyText text="送信中" kana="そうしんちゅう" />...</span> : <span>けってい！</span>}
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const PinDetailModal = ({ pin, onClose }) => {
+        const { state, showToast, dispatch, doAction, canAdmin } = useContext(AppContext);
+        const [isDeleting, setIsDeleting] = useState(false);
+        const [confirmDelete, setConfirmDelete] = useState(false);
+        const [comment, setComment] = useState('');
+
+        const isOwnerOrTeacher = state.user.email === pin.email || canAdmin;
+        const authorInfo = state.users.find(u => u.email === pin.email) || {name: '不明', group_id: '?'};
+        const pinComments = state.chats.filter(c => c.target_type === 'pin' && c.target_id === pin.pin_id);
+
+        const handleDelete = async () => {
+          setIsDeleting(true);
+          try {
+            await doAction('delete_pin', { pin_id: pin.pin_id });
+            showToast('ピンを削除しました');
+            dispatch(p => ({...p, pins: p.pins.filter(x => x.pin_id !== pin.pin_id)}));
+            onClose();
+          } catch(e) { showToast(e.message || 'エラー', 'error'); setIsDeleting(false); }
+        };
+
+        const handleSendComment = async () => {
+          if(!comment.trim()) return;
+          const payload = { chat_id: `c_${Date.now()}`, unit_id: state.activeUnit.unit_id, email: state.user.email, message: comment, target_type: 'pin', target_id: pin.pin_id };
+          setComment('');
+          dispatch(p => ({...p, chats: [...p.chats, payload]}));
+          try { await doAction('save_chat', payload); }
+          catch(e) { dispatch(p => ({...p, chats: p.chats.filter(c => c.chat_id !== payload.chat_id)})); showToast(<span><RubyText text="送信失敗" kana="そうしんしっぱい" /></span>,'error'); }
+        };
+
+        return (
+          <div className="fixed inset-0 bg-slate-900/60 z-[9500] flex items-center justify-center p-4 backdrop-blur-sm animate-pop-in"
+               onClick={onClose} onPointerDown={e=>e.stopPropagation()} onPointerUp={e=>e.stopPropagation()}>
+            <div className="bg-white w-full max-w-lg rounded-[24px] shadow-float flex flex-col overflow-hidden relative max-h-[90vh]" onClick={e => e.stopPropagation()}>
+              <div className="overflow-y-auto flex-1 custom-scrollbar">
+                {pin.image_url ? (
+                  <div className="w-full h-64 bg-slate-100 relative shrink-0">
+                    <SmartImg src={pin.image_url} className="w-full h-full object-cover" />
+                    <button onClick={onClose} className="absolute top-4 right-4 bg-black/40 text-white rounded-full w-10 h-10 flex items-center justify-center hover:bg-black/60 backdrop-blur-md transition"><SvgIcon.Close /></button>
+                  </div>
+                ) : (
+                  <div className="w-full flex justify-end p-4 absolute top-0 z-10 pointer-events-none">
+                     <button onClick={onClose} className="bg-slate-100/80 text-slate-500 rounded-full w-10 h-10 flex items-center justify-center hover:bg-slate-200 transition pointer-events-auto backdrop-blur-sm"><SvgIcon.Close /></button>
+                  </div>
+                )}
+
+                <div className={`p-6 sm:p-8 relative ${!pin.image_url ? 'pt-12' : ''}`}>
+
+                  <div className="flex items-center gap-2 mb-4">
+                    {pin.color.startsWith('#') ? <span className="w-4 h-4 rounded-full shadow-inner border border-black/10" style={{backgroundColor: pin.color}}></span> : <span className="text-xl leading-none drop-shadow-sm">{pin.color}</span>}
+                    <span className="bg-slate-100 text-slate-600 px-3 py-1 rounded-full text-xs font-bold border border-slate-200">{authorInfo.group_id} - {authorInfo.name}</span>
+                  </div>
+
+                  <h3 className="text-2xl sm:text-3xl font-extrabold text-slate-800 mb-4 leading-tight">{pin.title}</h3>
+
+                  <div className="bg-accent-50/50 p-5 rounded-2xl border border-accent-100 mb-3 shadow-inner-soft">
+                    <p className="text-slate-700 whitespace-pre-wrap font-medium text-[15px] leading-relaxed">{pin.memo || '（メモはありません）'}</p>
+                  </div>
+
+                  <div className="flex justify-end mb-8">
+                    <ReactionBar targetType="pin" targetId={pin.pin_id} />
+                  </div>
+
+                  <div className="border-t border-slate-100 pt-6">
+                    <h4 className="font-bold text-slate-700 mb-4 text-sm flex items-center gap-2">
+                       <span className="bg-slate-100 p-1.5 rounded-lg text-xs">💬</span> コメント ({pinComments.length})
+                    </h4>
+                    <div className="space-y-4 mb-2">
+                      {pinComments.map(c => {
+                        const cAuthor = state.users.find(u => u.email === c.email) || {name: '不明'};
+                        return (
+                          <div key={c.chat_id} className="bg-slate-50 p-4 rounded-2xl text-sm border border-slate-100 flex flex-col items-start">
+                            <span className="font-bold text-slate-500 text-[11px] block mb-1">{cAuthor.name}</span>
+                            <span className="text-slate-800 font-medium block leading-relaxed">{c.message}</span>
+                            <div className="mt-2 scale-90 origin-left"><ReactionBar targetType="chat" targetId={c.chat_id} /></div>
+                          </div>
+                        );
+                      })}
+                      {pinComments.length === 0 && <p className="text-sm text-slate-400 text-center py-4 bg-slate-50 rounded-xl border border-dashed border-slate-200">まだコメントはありません。</p>}
+                    </div>
+                  </div>
+
+                  {isOwnerOrTeacher && (
+                    <div className="flex justify-end pt-6 mt-4 border-t border-slate-100">
+                      {!confirmDelete ? (
+                        <button onClick={() => setConfirmDelete(true)} className="text-rose-500 font-bold text-xs sm:text-sm bg-rose-50 px-4 py-2 rounded-full hover:bg-rose-100 transition flex items-center gap-1.5">
+                          <SvgIcon.Trash /> <RubyText text="削除" kana="さくじょ" />する
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-2 bg-rose-50 p-1.5 rounded-full border border-rose-100 animate-pop-in">
+                          <span className="text-xs font-bold text-rose-600 pl-3 pr-1"><RubyText text="本当" kana="ほんとう" />に<RubyText text="消" kana="け" />す？</span>
+                          <button onClick={() => setConfirmDelete(false)} className="px-3 py-1.5 bg-white text-slate-600 border border-slate-200 rounded-full text-xs font-bold hover:bg-slate-50">やめる</button>
+                          <button onClick={handleDelete} disabled={isDeleting} className="px-4 py-1.5 bg-rose-500 text-white rounded-full text-xs font-bold shadow-sm hover:bg-rose-600">はい</button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="p-4 sm:p-5 border-t border-slate-200 bg-surface shrink-0 flex gap-2">
+                <input type="text" value={comment} onChange={e=>setComment(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSendComment()} placeholder="コメントをかく..." className="flex-1 bg-white border border-slate-200 rounded-full px-5 py-3 outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 font-medium text-sm transition shadow-sm" />
+                <button onClick={handleSendComment} className="bg-brand-500 text-white w-12 h-12 rounded-full flex items-center justify-center shadow-md hover:bg-brand-600 transition shrink-0"><SvgIcon.Send /></button>
+              </div>
+            </div>
+          </div>
+        );
+      };
+
+      const PinIcon = ({ color, onClick, isNew }) => {
+        const isEmoji = !color.startsWith('#');
+        return (
+          <div onClick={onClick} className={`pin-element absolute -translate-x-1/2 -translate-y-full cursor-pointer flex items-end justify-center transition-transform duration-200 ${isNew ? 'animate-pop-in' : 'hover:scale-110 hover:-translate-y-full active:scale-95'} drop-shadow-xl hover:drop-shadow-2xl z-10`} style={{ width: '52px', height: '52px', pointerEvents: 'auto', color: isEmoji ? '#333' : color }}>
+            {isEmoji ? (
+              <div className="w-11 h-11 bg-white rounded-full shadow-md border-2 border-slate-200 flex items-center justify-center text-xl mb-1.5 relative">
+                <span className="translate-y-[1px]">{color}</span>
+                <div className="absolute -bottom-[9px] left-1/2 -translate-x-1/2 w-0 h-0 border-l-[7px] border-r-[7px] border-t-[10px] border-l-transparent border-r-transparent border-t-slate-200"></div>
+                <div className="absolute -bottom-[6px] left-1/2 -translate-x-1/2 w-0 h-0 border-l-[5px] border-r-[5px] border-t-[8px] border-l-transparent border-r-transparent border-t-white"></div>
+              </div>
+            ) : (
+              <svg viewBox="0 0 24 24" fill="currentColor" className="w-full h-full stroke-white stroke-[2px]">
+                <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+              </svg>
+            )}
+          </div>
+        );
+      };
+
+      const ChatPanel = ({ isOpen, onClose }) => {
+        const { state, showToast, dispatch, doAction, canAdmin } = useContext(AppContext);
+        const [msg, setMsg] = useState('');
+        const [replyTo, setReplyTo] = useState(null);
+        const endRef = useRef(null);
+
+        useEffect(() => { endRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [state.chats, isOpen]);
+
+        const handleSend = async () => {
+          if(!msg.trim()) return;
+          const payload = { chat_id: `c_${Date.now()}`, unit_id: state.activeUnit.unit_id, email: state.user.email, message: msg, target_type: replyTo ? 'chat' : 'general', target_id: replyTo ? replyTo.chat_id : '' };
+          setMsg(''); setReplyTo(null);
+
+          dispatch(p => ({...p, chats: [...p.chats, payload]}));
+          try { await doAction('save_chat', payload); }
+          catch(e) { dispatch(p => ({...p, chats: p.chats.filter(c => c.chat_id !== payload.chat_id)})); showToast(<span><RubyText text="送信失敗" kana="そうしんしっぱい" /></span>,'error'); }
+        };
+
+        if(!isOpen) return null;
+        const isChatEnabled = state.activeUnit?.chat_enabled;
+
+        return (
+          <div className="absolute right-0 top-0 bottom-0 w-full md:w-96 bg-white/95 backdrop-blur-xl border-l border-white/40 shadow-[-10px_0_30px_rgba(0,0,0,0.05)] flex flex-col z-40 animate-slide-in-right"
+               onPointerDown={e=>e.stopPropagation()} onPointerUp={e=>e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center shrink-0 bg-white/50">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                <span className="bg-brand-50 text-brand-600 p-1.5 rounded-lg text-sm">💬</span>
+                みんなのひろば
+              </h3>
+              <button onClick={onClose} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-2 rounded-full transition"><SvgIcon.Close /></button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 sm:p-5 space-y-5 custom-scrollbar">
+              {state.chats.map(c => {
+                const isMe = c.email === state.user.email;
+                const author = state.users.find(u => u.email === c.email) || {name: '不明', group_id: '?'};
+                let pinContext = null;
+                if(c.target_type === 'pin') {
+                  const targetPin = state.pins.find(p => p.pin_id === c.target_id);
+                  pinContext = targetPin ? <span>📍 {targetPin.title} へのコメント</span> : <span>📍 <RubyText text="削除" kana="さくじょ" />されたピンへのコメント</span>;
+                }
+                let replyContext = null;
+                if(c.target_type === 'chat') {
+                  const targetChat = state.chats.find(x => x.chat_id === c.target_id);
+                  const tAuthor = targetChat ? (state.users.find(u => u.email === targetChat.email)?.name || '誰か') : '誰か';
+                  replyContext = <span>↩️ {tAuthor}さんへの<RubyText text="返信" kana="へんしん" /></span>;
+                }
+
+                return (
+                  <div key={c.chat_id} className={`flex flex-col group ${isMe ? 'items-end' : 'items-start'}`}>
+                    <span className="text-[10px] text-slate-400 mb-1 font-bold">{author.name} ({author.group_id})</span>
+                    {(pinContext || replyContext) && (
+                      <div className={`text-[10px] font-bold mb-1 px-2.5 py-1 rounded-full border ${isMe ? 'bg-brand-50 border-brand-100 text-brand-700' : 'bg-slate-100 border-slate-200 text-slate-600'}`}>
+                        {pinContext || replyContext}
+                      </div>
+                    )}
+                    <div className={`flex flex-col gap-1.5 ${isMe ? 'items-end' : 'items-start'}`}>
+                      <div className="flex items-end gap-2">
+                        {isMe && <button onClick={()=>setReplyTo(c)} className="opacity-0 group-hover:opacity-100 text-xs font-bold text-slate-400 hover:text-brand-500 transition"><RubyText text="返信" kana="へんしん" /></button>}
+                        <div className={`px-4 py-2.5 rounded-[20px] max-w-[240px] break-words shadow-sm font-medium text-[13px] leading-relaxed ${isMe ? 'bg-brand-500 text-white rounded-tr-sm' : 'bg-white border border-slate-200 text-slate-800 rounded-tl-sm'}`}>
+                          {c.message}
+                        </div>
+                        {!isMe && isChatEnabled && <button onClick={()=>setReplyTo(c)} className="opacity-0 group-hover:opacity-100 text-xs font-bold text-slate-400 hover:text-brand-500 transition"><RubyText text="返信" kana="へんしん" /></button>}
+                      </div>
+                      <div className={`scale-[0.85] origin-top ${isMe ? 'origin-right' : 'origin-left'}`}><ReactionBar targetType="chat" targetId={c.chat_id} /></div>
+                    </div>
+                  </div>
+                );
+              })}
+              <div ref={endRef} />
+            </div>
+
+            {isChatEnabled || canAdmin ? (
+              <div className="p-4 bg-surface border-t border-slate-200 shrink-0 flex flex-col gap-2 relative">
+                {replyTo && (
+                  <div className="flex justify-between items-center bg-white border border-slate-200 px-3 py-2 rounded-xl text-xs font-bold text-slate-600 shadow-sm animate-pop-in">
+                    <span>↩️ {(state.users.find(u=>u.email===replyTo.email)?.name || '誰か')} に<RubyText text="返信" kana="へんしん" />中</span>
+                    <button onClick={()=>setReplyTo(null)} className="hover:text-rose-500 bg-slate-50 rounded-full p-1"><SvgIcon.Close /></button>
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  <input type="text" value={msg} onChange={e=>setMsg(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSend()} placeholder="メッセージ..." className="flex-1 bg-white border border-slate-200 rounded-full px-5 py-3 outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 font-medium text-sm shadow-sm transition" />
+                  <button onClick={handleSend} className="bg-brand-500 text-white w-12 h-12 rounded-full flex items-center justify-center shadow-md hover:bg-brand-600 transition shrink-0"><SvgIcon.Send /></button>
+                </div>
+              </div>
+            ) : (
+              <div className="p-5 bg-slate-100 border-t border-slate-200 shrink-0 text-center">
+                <span className="text-sm font-bold text-slate-500"><span><RubyText text="現在" kana="げんざい" /></span>、チャットはオフになっています🔇</span>
+              </div>
+            )}
+          </div>
+        );
+      };
+
+      const MapArea = () => {
+        const { state, dispatch, showToast, canAdmin } = useContext(AppContext);
+        const [pan, setPan] = useState({ x: 0, y: 0, scale: 1 });
+        const [creatingPos, setCreatingPos] = useState(null);
+        const [selectedPin, setSelectedPin] = useState(null);
+        const [mode, setMode] = useState(state.user.role === 'teacher' ? 'view' : 'edit');
+
+        const [isDrawing, setIsDrawing] = useState(false);
+        const [lassoPoints, setLassoPoints] = useState([]);
+        const [areaPins, setAreaPins] = useState(null);
+
+        const mapRef = useRef(null);
+        const containerRef = useRef(null);
+        const isDragging = useRef(false);
+        const startPos = useRef({x: 0, y: 0, mouseX: 0, mouseY: 0});
+
+        const maps = state.activeUnit?.maps || [];
+        const currentMapInfo = maps.find(m => m.id === state.activeMapId) || maps[0];
+
+        const visiblePins = state.pins.filter(p => {
+          if(p.map_id !== state.activeMapId) return false;
+          if(state.filter.scope === 'mine' && p.email !== state.user.email) return false;
+          if(state.filter.scope === 'group' && state.users.find(u=>u.email === p.email)?.group_id !== state.user.group_id) return false;
+          if(state.filter.color !== 'all' && p.color !== state.filter.color) return false;
+          return true;
+        });
+
+        const getPos = (e) => {
+          if(!mapRef.current) return null;
+          const r = mapRef.current.getBoundingClientRect();
+          if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) return null;
+          return { x: ((e.clientX - r.left) / r.width) * 100, y: ((e.clientY - r.top) / r.height) * 100 };
+        };
+
+        const onPointerDown = (e) => {
+          if(e.target.closest('button') || e.target.closest('.pin-element')) return;
+          e.currentTarget.setPointerCapture(e.pointerId);
+
+          if (mode === 'lasso') {
+            setIsDrawing(true);
+            const pos = getPos(e);
+            if(pos) setLassoPoints([pos]);
+          } else {
+            isDragging.current = false;
+            startPos.current = { x: pan.x, y: pan.y, mouseX: e.clientX, mouseY: e.clientY };
+            if(containerRef.current) containerRef.current.style.transition = 'none';
+          }
+        };
+
+        const onPointerMove = (e) => {
+          if(!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+
+          if (mode === 'lasso') {
+            if (isDrawing) {
+              const pos = getPos(e);
+              if(pos) setLassoPoints(prev => [...prev, pos]);
+            }
+          } else {
+            const dx = e.clientX - startPos.current.mouseX;
+            const dy = e.clientY - startPos.current.mouseY;
+            if (!isDragging.current && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) isDragging.current = true;
+            if (isDragging.current && containerRef.current) {
+               containerRef.current.style.transform = `translate3d(${startPos.current.x + dx}px, ${startPos.current.y + dy}px, 0) scale(${pan.scale})`;
+            }
+          }
+        };
+
+        const onPointerUp = (e) => {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+
+          if (mode === 'lasso') {
+            if (isDrawing) {
+              setIsDrawing(false);
+              if (lassoPoints.length > 5) {
+                const containedPins = visiblePins.filter(p => isPointInPolygon({x: p.x, y: p.y}, lassoPoints));
+                if (containedPins.length > 0) {
+                  setAreaPins(containedPins);
+                } else {
+                  showToast(<span>かこんだ<RubyText text="中" kana="なか" />にピンはありませんでした</span>, 'error');
+                }
+              }
+              setLassoPoints([]);
+            }
+          } else {
+            if(containerRef.current) containerRef.current.style.transition = 'transform 0.1s ease-out';
+
+            if (isDragging.current) {
+              const dx = e.clientX - startPos.current.mouseX;
+              const dy = e.clientY - startPos.current.mouseY;
+              setPan(p => ({...p, x: startPos.current.x + dx, y: startPos.current.y + dy}));
+            } else {
+              if (mode === 'edit' && state.user.role !== 'teacher') {
+                const pos = getPos(e);
+                if(pos) setCreatingPos(pos);
+              }
+            }
+            isDragging.current = false;
+          }
+        };
+
+        const handleZoom = (amount) => setPan(p=>({...p, scale: Math.max(Math.min(p.scale + amount, 4), 1)}));
+
+        const url = currentMapInfo?.url || '';
+        const resolvedUrl = useResolvedImage(url);
+        const displayUrl = !resolvedUrl ? '' :
+          resolvedUrl.startsWith('data:') ? resolvedUrl :
+          resolvedUrl.includes('drive') ? resolvedUrl :
+          `https://drive.google.com/thumbnail?sz=w1500&id=${resolvedUrl.match(/id=([^&]+)/)?.[1]||resolvedUrl}`;
+
+        return (
+          <div className={`flex-1 relative overflow-hidden bg-slate-100 flex items-center justify-center ${mode === 'lasso' ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'}`}
+               onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
+
+            {maps.length > 0 && (
+              <div className="absolute top-5 left-1/2 -translate-x-1/2 z-overlay flex gap-1.5 p-1.5 bg-white/80 backdrop-blur-lg rounded-full shadow-float border border-white/60 animate-pop-in max-w-[95vw] overflow-x-auto custom-scrollbar">
+                {maps.map(m => (
+                   <button key={m.id} onClick={(e)=>{e.stopPropagation(); dispatch(p=>({...p, activeMapId: m.id}));}}
+                           className={`px-6 py-2.5 rounded-full font-bold text-[13px] whitespace-nowrap transition-all ${state.activeMapId === m.id ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-white hover:text-slate-800'}`}>
+                     {m.name}
+                   </button>
+                ))}
+              </div>
+            )}
+
+            {mode === 'lasso' && (
+              <div className="absolute top-24 left-1/2 -translate-x-1/2 z-overlay pointer-events-none animate-pop-in">
+                <span className="bg-brand-500 text-white px-6 py-3 rounded-full font-bold shadow-float animate-pulse flex items-center gap-2 border-[3px] border-white text-sm">
+                  <span>✏️</span>
+                  <span><RubyText text="地図" kana="ちず" />をなぞって かこんでね！</span>
+                </span>
+              </div>
+            )}
+
+            <div className="absolute bottom-8 sm:bottom-10 left-1/2 -translate-x-1/2 z-overlay bg-white/90 backdrop-blur-xl p-2 rounded-full shadow-float border border-white flex gap-1.5 print-hidden">
+              <button onClick={(e)=>{ e.stopPropagation(); setMode('view'); }} className={`px-5 py-3 sm:px-7 sm:py-3.5 rounded-full font-bold text-xs sm:text-sm transition-all flex items-center gap-2 ${mode==='view' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'}`}>
+                <span className="text-base sm:text-lg shrink-0">👀</span>
+                <span className="inline-block mt-1">さわる・<RubyText text="見" kana="み" />る</span>
+              </button>
+
+              <button onClick={(e)=>{ e.stopPropagation(); setMode('lasso'); }} className={`px-5 py-3 sm:px-7 sm:py-3.5 rounded-full font-bold text-xs sm:text-sm transition-all flex items-center gap-2 ${mode==='lasso' ? 'bg-brand-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100 hover:text-brand-600'}`}>
+                <span className="text-base sm:text-lg shrink-0">✏️</span>
+                <span className="inline-block mt-1">かこんで<RubyText text="見" kana="み" />る</span>
+              </button>
+
+              {state.user.role !== 'teacher' && (
+                <button onClick={(e)=>{ e.stopPropagation(); setMode('edit'); }} className={`px-5 py-3 sm:px-7 sm:py-3.5 rounded-full font-bold text-xs sm:text-sm transition-all flex items-center gap-2 ${mode==='edit' ? 'bg-accent-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100 hover:text-accent-600'}`}>
+                  <span className="text-base sm:text-lg shrink-0">📍</span>
+                  <span className="inline-block mt-1">ピンをさす</span>
+                </button>
+              )}
+            </div>
+
+            <div className="absolute bottom-8 left-6 z-overlay flex flex-col gap-2">
+              <div className="flex flex-col bg-white/90 backdrop-blur-md rounded-full shadow-float border border-white p-1">
+                <button onClick={()=>handleZoom(0.5)} className="w-11 h-11 bg-transparent rounded-full font-bold text-xl text-slate-600 hover:bg-slate-100 transition">+</button>
+                <div className="w-full h-px bg-slate-200"></div>
+                <button onClick={()=>handleZoom(-0.5)} className="w-11 h-11 bg-transparent rounded-full font-bold text-xl text-slate-600 hover:bg-slate-100 transition">-</button>
+              </div>
+              <button onClick={()=>setPan({scale:1,x:0,y:0})} className="w-[52px] h-[52px] mt-2 bg-slate-800 text-white rounded-full shadow-float font-bold text-[11px] hover:bg-black transition"><RubyText text="戻" kana="もど" />す</button>
+            </div>
+
+            <div ref={containerRef} className="smooth-map-container relative shadow-[0_20px_50px_-12px_rgba(0,0,0,0.15)] rounded-3xl border-[6px] border-white bg-white transition-transform duration-100 ease-out"
+                 style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${pan.scale})`, width: 'fit-content', height: 'fit-content' }}>
+
+              {url && displayUrl ? <img ref={mapRef} src={displayUrl} style={{ maxWidth: '85vw', maxHeight: '75vh', width: 'auto', height: 'auto' }} className="block pointer-events-none rounded-2xl" draggable="false" />
+                   : url ? <div className="w-[60vw] h-[60vh] max-w-2xl max-h-2xl flex items-center justify-center text-slate-400 font-bold bg-slate-50 rounded-2xl animate-pulse">
+                       <span className="text-4xl">🗺️</span>
+                     </div>
+                   : <div className="w-[60vw] h-[60vh] max-w-2xl max-h-2xl flex items-center justify-center text-slate-400 font-bold bg-slate-50 rounded-2xl border-2 border-dashed border-slate-200">
+                       <div className="text-center">
+                         <span className="text-6xl block mb-4">🗺️</span>
+                         <span><RubyText text="先生" kana="せんせい" />が<RubyText text="地図" kana="ちず" />を<RubyText text="設定" kana="せってい" />するのを<RubyText text="待" kana="ま" />ってね</span>
+                       </div>
+                     </div>}
+
+              {mode === 'lasso' && lassoPoints.length > 0 && (
+                <svg className="absolute inset-0 w-full h-full pointer-events-none rounded-2xl" style={{zIndex: 900}} viewBox="0 0 100 100" preserveAspectRatio="none">
+                  <path d={'M ' + lassoPoints.map(p => `${p.x} ${p.y}`).join(' L ')} stroke="#0ea5e9" strokeWidth="0.6" strokeDasharray="1,1" fill="rgba(14, 165, 233, 0.15)" vectorEffect="non-scaling-stroke" />
+                </svg>
+              )}
+
+              {visiblePins.map(pin => (
+                <div key={pin.pin_id} className="absolute" style={{ left: `${pin.x}%`, top: `${pin.y}%` }}>
+                  <PinIcon color={pin.color} onClick={(e) => {
+                    e.stopPropagation();
+                    if(mode === 'view' || state.user.role === 'teacher') setSelectedPin(pin);
+                  }} />
+                </div>
+              ))}
+              {creatingPos && <div className="absolute z-50" style={{ left: `${creatingPos.x}%`, top: `${creatingPos.y}%` }}><PinIcon color="#999" isNew /></div>}
+            </div>
+
+            {creatingPos && <PinCreateModal pos={creatingPos} onClose={()=>setCreatingPos(null)} />}
+            {selectedPin && <PinDetailModal pin={selectedPin} onClose={() => setSelectedPin(null)} />}
+            {areaPins && <PinListModal pins={areaPins} onClose={() => setAreaPins(null)} onSelectPin={(pin) => { setAreaPins(null); setSelectedPin(pin); }} />}
+          </div>
+        );
+      };
+
+      // ==========================================
+      // MainApp（アプリ本体。teacher / student / legacy で共通）
+      // ==========================================
+      const MainApp = ({ ctx, onExit }) => {
+        const [state, dispatch] = useState({ user: null, users: [], activeUnit: null, activeMapId: null, pins: [], chats: [], reactions: [], filter: { scope: 'all', color: 'all' }, hasApiKey: false });
+        const [sysState, setSysState] = useState({ loading: true, error: null, toast: null });
+        const [uiState, setUiState] = useState({ chatOpen: false, teacherOpen: false });
+
+        const showToast = useCallback((msg, type='success') => setSysState(p=>({...p, toast: {msg, type}})), []);
+        const api = ctx.api;
+        const doAction = ctx.doAction;
+        // 管理操作（管理パネル・他人の記録の削除）は「T/legacy で教員」の場合のみ。
+        // 教員が児童用URLでプレビューしている場合は不可（サーバー側でも拒否される）
+        const canAdmin = (state.user?.role === 'teacher') && ctx.mode !== 'student';
+
+        const initLoad = async () => {
+          try {
+            const res = await api('GetInitData');
+            if(res.status === 'unregistered') {
+              setSysState(p=>({...p, loading: false, error: 'unregistered'}));
+            } else {
+              dispatch(p => ({
+                ...p, user: res.user, users: res.users, activeUnit: res.activeUnit,
+                activeMapId: res.activeUnit?.maps?.[0]?.id || null,
+                pins: res.pins, chats: res.chats, reactions: res.reactions || [], hasApiKey: !!res.hasApiKey
+              }));
+              setSysState(p=>({...p, loading: false}));
+            }
+          } catch(e) { setSysState(p=>({...p, loading: false, error: e.message || 'エラーが発生しました'})); }
+        };
+
+        useEffect(() => {
+          initLoad();
+          const intervalMs = ctx.mode === 'student' ? 15000 : 10000;
+          const timer = setInterval(async () => {
+            if(!state.activeUnit) return;
+            try {
+              const res = await api('SyncData', state.activeUnit.unit_id);
+              if(res.success) {
+                dispatch(p => {
+                   const newUnit = res.activeUnit || p.activeUnit;
+                   const mapId = p.activeMapId || newUnit?.maps?.[0]?.id;
+                   return { ...p, pins: res.pins, chats: res.chats, reactions: res.reactions || [],
+                     users: res.users || p.users,
+                     activeUnit: newUnit, activeMapId: mapId,
+                     hasApiKey: res.hasApiKey !== undefined ? !!res.hasApiKey : p.hasApiKey };
+                });
+              }
+            } catch(e) {}
+          }, intervalMs);
+          return () => clearInterval(timer);
+        }, [state.activeUnit?.unit_id]);
+
+        if (sysState.loading) return <LoadingOverlay />;
+        if (sysState.error === 'unregistered') return (
+          <div className="h-screen flex items-center justify-center bg-surface p-4">
+            <div className="bg-white p-12 rounded-[32px] shadow-float text-center max-w-md w-full border-t-[10px] border-brand-500 relative overflow-hidden">
+              <div className="absolute top-0 left-0 w-full h-32 bg-brand-50/50"></div>
+              <span className="text-7xl block mb-6 relative z-10 drop-shadow-sm">🏫</span>
+              <h1 className="text-2xl font-extrabold text-slate-800 mb-4 relative z-10 tracking-tight">まだ <RubyText text="登録" kana="とうろく" />されていません</h1>
+              <p className="text-slate-500 font-medium text-sm leading-relaxed relative z-10 bg-slate-50 p-4 rounded-xl border border-slate-100">
+                <span><RubyText text="先生" kana="せんせい" />に メールアドレスを<RubyText text="登録" kana="とうろく" />してもらってから、もう<RubyText text="一度" kana="いちど" /> ひらいてね！</span>
+              </p>
+            </div>
+          </div>
+        );
+        if (sysState.error) return <div className="h-screen flex items-center justify-center font-bold text-rose-500 bg-surface p-6 text-center">{sysState.error}</div>;
+
+        return (
+          <AppContext.Provider value={{ state, dispatch, showToast, api, doAction, ctx, canAdmin }}>
+            <div className="h-screen w-full flex flex-col bg-surface overflow-hidden">
+
+              <header className="flex-none h-16 bg-white/90 backdrop-blur-md z-50 px-4 md:px-6 flex justify-between items-center border-b border-slate-200/60 shadow-sm">
+                <div className="flex items-center gap-3">
+                  {onExit && (
+                    <button onClick={onExit} className="bg-slate-100 text-slate-600 px-3 py-2 rounded-full font-bold text-xs hover:bg-slate-200 transition no-print">← ポータル</button>
+                  )}
+                  <span className="text-2xl bg-brand-50 p-1.5 rounded-xl shadow-inner-soft border border-brand-100">🗺️</span>
+                  <h1 className="text-xl font-extrabold text-slate-800 tracking-tight hidden sm:block">みっけ！</h1>
+                </div>
+
+                {state.user.role !== 'teacher' && (
+                  <div className="flex bg-slate-100/80 p-1 shadow-inner-soft border border-slate-200/80 rounded-full">
+                    <button onClick={()=>dispatch(p=>({...p, filter:{...p.filter, scope:'all'}}))} className={`px-4 sm:px-5 py-1.5 rounded-full text-xs sm:text-sm font-bold transition-all ${state.filter.scope==='all'?'bg-white shadow-sm text-brand-600':'text-slate-500 hover:text-slate-700'}`}>みんな</button>
+                    <button onClick={()=>dispatch(p=>({...p, filter:{...p.filter, scope:'group'}}))} className={`px-4 sm:px-5 py-1.5 rounded-full text-xs sm:text-sm font-bold transition-all ${state.filter.scope==='group'?'bg-white shadow-sm text-brand-600':'text-slate-500 hover:text-slate-700'}`}>
+                      <span className="mt-0.5 inline-block">じぶんの<RubyText text="班" kana="はん" /></span>
+                    </button>
+                    <button onClick={()=>dispatch(p=>({...p, filter:{...p.filter, scope:'mine'}}))} className={`px-4 sm:px-5 py-1.5 rounded-full text-xs sm:text-sm font-bold transition-all ${state.filter.scope==='mine'?'bg-white shadow-sm text-brand-600':'text-slate-500 hover:text-slate-700'}`}>じぶん</button>
+                  </div>
+                )}
+
+                <div className="flex items-center gap-4 sm:gap-5">
+                  <div className="text-right hidden md:block">
+                    <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{state.user.group_id}</div>
+                    <div className="font-extrabold text-slate-700 text-sm">{state.user.name} <span className="text-[10px] font-normal text-slate-500">さん</span></div>
+                  </div>
+                  <button onClick={()=>setUiState(p=>({...p, chatOpen: !p.chatOpen}))} className="relative bg-slate-50 p-2.5 rounded-full shadow-sm hover:shadow-md border border-slate-200 transition text-lg">
+                    💬 <span className="absolute -top-1.5 -right-1.5 bg-accent-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full shadow-sm border-2 border-white">{state.chats.length}</span>
+                  </button>
+                  {canAdmin && (
+                    <button onClick={()=>setUiState(p=>({...p, teacherOpen: true}))} className="bg-slate-800 text-white px-5 py-2.5 rounded-full font-bold text-xs shadow-md hover:bg-black transition">管理パネル</button>
+                  )}
+                </div>
+              </header>
+
+              <div className="flex-1 relative flex overflow-hidden">
+                <MapArea />
+                <ChatPanel isOpen={uiState.chatOpen} onClose={()=>setUiState(p=>({...p, chatOpen: false}))} />
+              </div>
+
+              <footer className="flex-none h-10 flex justify-center items-center bg-white border-t border-slate-200 text-[10px] sm:text-xs text-slate-400 font-bold z-50 tracking-wider">
+                © 2026 みっけ！ <a href="https://note.com/cute_borage86" target="_blank" className="ml-1.5 text-slate-500 hover:text-brand-500 transition">GIGA山</a>
+              </footer>
+
+              {uiState.teacherOpen && <TeacherConsole onClose={()=>setUiState(p=>({...p, teacherOpen: false}))} />}
+              <Toast msg={sysState.toast?.msg} type={sysState.toast?.type} onHide={()=>setSysState(p=>({...p, toast: null}))} />
+            </div>
+          </AppContext.Provider>
+        );
+      };
+
+      // ==========================================
+      // 教員ポータル（デプロイ T / ?portal=1）
+      // ==========================================
+      const makeQrDataUrl = (text) => {
+        try {
+          const qr = qrcode(0, 'M');
+          qr.addData(text);
+          qr.make();
+          return qr.createDataURL(6, 8);
+        } catch (e) { return null; }
+      };
+
+      const CopyButton = ({ text, label }) => {
+        const [copied, setCopied] = useState(false);
+        const copy = async () => {
+          try { await navigator.clipboard.writeText(text); }
+          catch(e) {
+            const ta = document.createElement('textarea');
+            ta.value = text; document.body.appendChild(ta); ta.select();
+            document.execCommand('copy'); document.body.removeChild(ta);
+          }
+          setCopied(true); setTimeout(()=>setCopied(false), 2000);
+        };
+        return (
+          <button onClick={copy} className={`px-4 py-2.5 rounded-xl font-bold text-sm transition shadow-sm ${copied ? 'bg-emerald-500 text-white' : 'bg-slate-800 text-white hover:bg-black'}`}>
+            {copied ? '✅ コピーしました' : (label || '📋 コピー')}
+          </button>
+        );
+      };
+
+      const ClassManage = ({ classCode, onBack, onOpenApp, onCodeRotated, onRevoked, showToast }) => {
+        const [info, setInfo] = useState(null);
+        const [error, setError] = useState(null);
+        const [busy, setBusy] = useState(false);
+        const [selectedPending, setSelectedPending] = useState({});
+        const [confirming, setConfirming] = useState(null); // 'rotate' | 'revoke' | email
+
+        const load = () => {
+          setError(null);
+          portalCall('tpListMembers', classCode)
+            .then(setInfo)
+            .catch(e => setError(e.message));
+        };
+        useEffect(load, [classCode]);
+
+        const qrUrl = useMemo(() => info ? makeQrDataUrl(info.studentUrl) : null, [info && info.studentUrl]);
+
+        const run = async (fn, ...args) => {
+          setBusy(true);
+          try { await portalCall(fn, ...args); load(); }
+          catch(e) { showToast(e.message, 'error'); }
+          setBusy(false);
+        };
+
+        if (error) return (
+          <div className="p-8 text-center">
+            <p className="text-rose-500 font-bold mb-4">{error}</p>
+            <button onClick={onBack} className="bg-slate-800 text-white px-6 py-3 rounded-xl font-bold">← 戻る</button>
+          </div>
+        );
+        if (!info) return <div className="p-20 flex justify-center"><div className="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-brand-500"></div></div>;
+
+        const pending = info.members.filter(m => m.status === 'pending');
+        const active = info.members.filter(m => m.status === 'active');
+
+        return (
+          <div className="max-w-4xl mx-auto w-full p-4 sm:p-8 space-y-6 animate-pop-in pb-24">
+            <div className="flex items-center justify-between flex-wrap gap-3">
+              <div className="flex items-center gap-3">
+                <button onClick={onBack} className="bg-white border border-slate-200 text-slate-600 px-4 py-2.5 rounded-xl font-bold text-sm hover:bg-slate-50 transition shadow-sm">←</button>
+                <div>
+                  <h2 className="text-2xl font-extrabold text-slate-800">{info.className}</h2>
+                  <p className="text-xs text-slate-400 font-bold">クラスコード: <span className="font-mono text-brand-600 text-sm">{info.classCode}</span></p>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <a href={info.spreadsheetUrl} target="_blank" rel="noopener noreferrer" className="bg-emerald-50 text-emerald-700 border border-emerald-200 px-4 py-2.5 rounded-xl font-bold text-sm hover:bg-emerald-100 transition shadow-sm">📊 スプレッドシートを開く</a>
+                <button onClick={onOpenApp} className="bg-brand-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-brand-600 transition shadow-md">🗺️ アプリを開く</button>
+              </div>
+            </div>
+
+            {/* 児童用 URL & QR */}
+            <section className="bg-white rounded-3xl border border-slate-200 shadow-soft p-6 sm:p-8">
+              <h3 className="font-extrabold text-slate-800 text-lg mb-4 flex items-center gap-2"><span>🔗</span> 児童用の入り口（この URL / QR を配るだけ）</h3>
+              <div className="flex flex-col md:flex-row gap-6 items-center">
+                {qrUrl && (
+                  <div className="bg-white p-3 rounded-2xl border-2 border-slate-100 shadow-sm shrink-0">
+                    <img src={qrUrl} alt="児童用URLのQRコード" className="w-44 h-44 [image-rendering:pixelated]" />
+                  </div>
+                )}
+                <div className="flex-1 w-full space-y-3">
+                  <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-mono text-sm text-slate-700 break-all">{info.studentUrl}</div>
+                  <div className="flex gap-2 flex-wrap">
+                    <CopyButton text={info.studentUrl} label="📋 URL をコピー" />
+                  </div>
+                  <p className="text-xs text-slate-400 leading-relaxed">児童はこの URL を開いて Google アカウントでサインインするだけで使えます。共有設定やIDのコピペは不要です。児童にスプレッドシートの権限は一切付きません。</p>
+                </div>
+              </div>
+            </section>
+
+            {/* 受付設定 */}
+            <section className="bg-white rounded-3xl border border-slate-200 shadow-soft p-6 sm:p-8 space-y-4">
+              <h3 className="font-extrabold text-slate-800 text-lg flex items-center gap-2"><span>🚪</span> 参加の受付</h3>
+              {[
+                { key: 'joinOpen', label: '参加受付', desc: 'オフにすると、新しい児童は参加申請できなくなります', value: info.joinOpen, fn: 'tpSetJoinOpen' },
+                { key: 'requireApproval', label: '参加の承認制', desc: 'オン（推奨）の場合、児童の参加には先生の承認が必要です', value: info.requireApproval, fn: 'tpSetRequireApproval' }
+              ].map(t => (
+                <div key={t.key} className="flex items-center justify-between bg-slate-50 rounded-2xl p-4 border border-slate-100">
+                  <div>
+                    <p className="font-bold text-slate-800 text-sm">{t.label}</p>
+                    <p className="text-xs text-slate-500 mt-0.5">{t.desc}</p>
+                  </div>
+                  <button disabled={busy} onClick={()=>run(t.fn, classCode, !t.value)} className={`relative inline-flex h-8 w-14 shrink-0 items-center rounded-full transition-colors ${t.value ? 'bg-brand-500' : 'bg-slate-200'}`}>
+                    <span className={`inline-block h-6 w-6 transform rounded-full bg-white transition-transform shadow-sm ${t.value ? 'translate-x-7' : 'translate-x-1'}`}/>
+                  </button>
+                </div>
+              ))}
+            </section>
+
+            {/* 承認待ち */}
+            {pending.length > 0 && (
+              <section className="bg-amber-50 rounded-3xl border-2 border-amber-200 shadow-soft p-6 sm:p-8">
+                <h3 className="font-extrabold text-amber-900 text-lg mb-4 flex items-center gap-2"><span>🙋</span> 参加申請（承認待ち {pending.length} 件）</h3>
+                <div className="space-y-2 mb-4">
+                  {pending.map(m => (
+                    <label key={m.email} className="flex items-center gap-3 bg-white p-3 rounded-xl border border-amber-100 cursor-pointer hover:bg-amber-50/50 transition">
+                      <input type="checkbox" checked={!!selectedPending[m.email]} onChange={e=>setSelectedPending(p=>({...p, [m.email]: e.target.checked}))} className="w-5 h-5 accent-amber-500" />
+                      <span className="font-bold text-slate-800 text-sm">{m.displayName}</span>
+                      {m.number && <span className="text-xs text-slate-500 font-bold">({m.number}番)</span>}
+                      <span className="text-xs text-slate-400 font-mono ml-auto">{m.email}</span>
+                    </label>
+                  ))}
+                </div>
+                <div className="flex gap-2">
+                  <button disabled={busy} onClick={()=>{ const emails = Object.keys(selectedPending).filter(k=>selectedPending[k]); if(emails.length){ run('tpApprove', classCode, emails); setSelectedPending({}); } }} className="bg-amber-500 text-white px-6 py-3 rounded-xl font-bold text-sm hover:bg-amber-600 transition shadow-sm">選択した児童を承認する</button>
+                  <button disabled={busy} onClick={()=>{ run('tpApprove', classCode, pending.map(m=>m.email)); setSelectedPending({}); }} className="bg-white text-amber-700 border border-amber-300 px-6 py-3 rounded-xl font-bold text-sm hover:bg-amber-100 transition">全員承認</button>
+                </div>
+              </section>
+            )}
+
+            {/* 名簿 */}
+            <section className="bg-white rounded-3xl border border-slate-200 shadow-soft p-6 sm:p-8">
+              <h3 className="font-extrabold text-slate-800 text-lg mb-4 flex items-center gap-2"><span>👥</span> 参加中のメンバー ({active.length})</h3>
+              <div className="divide-y divide-slate-100">
+                {active.map(m => (
+                  <div key={m.email} className="flex items-center gap-3 py-3">
+                    <span className={`w-9 h-9 rounded-full flex items-center justify-center text-xs font-bold text-white shrink-0 ${m.role==='teacher' ? 'bg-slate-800' : 'bg-brand-400'}`}>
+                      {m.role==='teacher' ? '👨‍🏫' : (m.displayName || '?').charAt(0)}
+                    </span>
+                    <div className="min-w-0">
+                      <p className="font-bold text-slate-800 text-sm truncate">{m.displayName} {m.role==='teacher' && <span className="text-[10px] bg-slate-100 px-2 py-0.5 rounded-full text-slate-500 ml-1">先生</span>}</p>
+                      <p className="text-[11px] text-slate-400 font-mono truncate">{m.email}{m.groupId ? ` / ${m.groupId}` : ''}{m.number ? ` / ${m.number}番` : ''}</p>
+                    </div>
+                    {m.role !== 'teacher' && (
+                      confirming === m.email ? (
+                        <div className="ml-auto flex items-center gap-2">
+                          <button onClick={()=>setConfirming(null)} className="text-xs font-bold text-slate-500 bg-slate-100 px-3 py-1.5 rounded-full">やめる</button>
+                          <button disabled={busy} onClick={()=>{ setConfirming(null); run('tpRemove', classCode, m.email); }} className="text-xs font-bold text-white bg-rose-500 px-3 py-1.5 rounded-full">外す</button>
+                        </div>
+                      ) : (
+                        <button onClick={()=>setConfirming(m.email)} className="ml-auto text-xs font-bold text-rose-400 hover:text-rose-600 hover:bg-rose-50 px-3 py-1.5 rounded-full transition">クラスから外す</button>
+                      )
+                    )}
+                  </div>
+                ))}
+                {active.length === 0 && <p className="text-sm text-slate-400 py-4 text-center">まだメンバーがいません</p>}
+              </div>
+            </section>
+
+            {/* 危険な操作 */}
+            <section className="bg-white rounded-3xl border border-slate-200 shadow-soft p-6 sm:p-8 space-y-4">
+              <h3 className="font-extrabold text-slate-800 text-lg flex items-center gap-2"><span>🛡️</span> セキュリティ</h3>
+              <div className="flex items-center justify-between bg-slate-50 rounded-2xl p-4 border border-slate-100 flex-wrap gap-3">
+                <div>
+                  <p className="font-bold text-slate-800 text-sm">クラスコードを再発行</p>
+                  <p className="text-xs text-slate-500 mt-0.5">URL が学外に漏れた時に。旧 URL / QR は無効になります（名簿と記録はそのまま）</p>
+                </div>
+                {confirming === 'rotate' ? (
+                  <div className="flex items-center gap-2">
+                    <button onClick={()=>setConfirming(null)} className="text-xs font-bold text-slate-500 bg-slate-100 px-4 py-2 rounded-full">やめる</button>
+                    <button disabled={busy} onClick={async ()=>{ setConfirming(null); setBusy(true); try { const r = await portalCall('tpRotateCode', classCode); showToast('新しいコードを発行しました'); onCodeRotated(r.classCode); } catch(e){ showToast(e.message,'error'); } setBusy(false); }} className="text-xs font-bold text-white bg-amber-500 px-4 py-2 rounded-full">再発行する</button>
+                  </div>
+                ) : (
+                  <button onClick={()=>setConfirming('rotate')} className="bg-amber-50 text-amber-700 border border-amber-200 px-4 py-2 rounded-xl font-bold text-xs hover:bg-amber-100 transition">🔄 再発行</button>
+                )}
+              </div>
+              <div className="flex items-center justify-between bg-slate-50 rounded-2xl p-4 border border-slate-100 flex-wrap gap-3">
+                <div>
+                  <p className="font-bold text-slate-800 text-sm">クラスを廃止</p>
+                  <p className="text-xs text-slate-500 mt-0.5">アプリから使えなくなります。スプレッドシート（記録）はあなたのドライブに残ります</p>
+                </div>
+                {confirming === 'revoke' ? (
+                  <div className="flex items-center gap-2">
+                    <button onClick={()=>setConfirming(null)} className="text-xs font-bold text-slate-500 bg-slate-100 px-4 py-2 rounded-full">やめる</button>
+                    <button disabled={busy} onClick={async ()=>{ setConfirming(null); setBusy(true); try { await portalCall('tpRevokeClass', classCode); showToast('クラスを廃止しました'); onRevoked(); } catch(e){ showToast(e.message,'error'); setBusy(false); } }} className="text-xs font-bold text-white bg-rose-500 px-4 py-2 rounded-full">廃止する</button>
+                  </div>
+                ) : (
+                  <button onClick={()=>setConfirming('revoke')} className="bg-rose-50 text-rose-600 border border-rose-200 px-4 py-2 rounded-xl font-bold text-xs hover:bg-rose-100 transition">🗑️ 廃止</button>
+                )}
+              </div>
+            </section>
+          </div>
+        );
+      };
+
+      const TeacherPortal = () => {
+        const [screen, setScreen] = useState({ type: 'loading' });
+        const [portal, setPortal] = useState(null);
+        const [toast, setToast] = useState(null);
+        const [creating, setCreating] = useState(false);
+        const [newClassName, setNewClassName] = useState('');
+        const [showExisting, setShowExisting] = useState(false);
+        const [existingInput, setExistingInput] = useState({ url: '', name: '' });
+
+        const showToast = (msg, type='success') => setToast({ msg, type });
+
+        const loadPortal = async () => {
+          try {
+            const res = await portalCall('tpGetMyPortal');
+            setPortal(res);
+            setScreen(s => s.type === 'loading' ? { type: 'list' } : s);
+          } catch (e) {
+            setScreen({ type: 'error', message: e.message });
+          }
+        };
+        useEffect(() => { loadPortal(); }, []);
+
+        const handleCreate = async () => {
+          if (!newClassName.trim()) return showToast('クラス名を入力してください', 'error');
+          setCreating(true);
+          try {
+            const res = await portalCall('tpCreateClass', newClassName.trim());
+            await loadPortal();
+            setNewClassName('');
+            setScreen({ type: 'created', data: res });
+          } catch (e) { showToast(e.message, 'error'); }
+          setCreating(false);
+        };
+
+        const handleRegisterExisting = async () => {
+          if (!existingInput.url.trim() || !existingInput.name.trim()) return showToast('URLとクラス名を入力してください', 'error');
+          setCreating(true);
+          try {
+            const res = await portalCall('tpRegisterExisting', existingInput.url.trim(), existingInput.name.trim());
+            await loadPortal();
+            setExistingInput({ url: '', name: '' });
+            setShowExisting(false);
+            setScreen({ type: 'created', data: res });
+          } catch (e) { showToast(e.message, 'error'); }
+          setCreating(false);
+        };
+
+        if (screen.type === 'loading') return <LoadingOverlay label={<span>ポータルをひらいています...</span>} />;
+        if (screen.type === 'error') return (
+          <div className="h-screen flex items-center justify-center bg-surface p-6">
+            <div className="bg-white p-10 rounded-[32px] shadow-float text-center max-w-md w-full border-t-[10px] border-rose-400">
+              <span className="text-6xl block mb-4">⚠️</span>
+              <p className="font-bold text-slate-700 leading-relaxed">{screen.message}</p>
+            </div>
+          </div>
+        );
+
+        if (screen.type === 'app') {
+          const ctx = { mode: 'teacher', classCode: screen.classCode, api: makeApi('teacher', screen.classCode) };
+          ctx.doAction = makeDoAction('teacher', ctx.api);
+          return <MainApp ctx={ctx} onExit={() => setScreen({ type: 'manage', classCode: screen.classCode })} />;
+        }
+
+        const classes = (portal && portal.classes) || [];
+
+        return (
+          <div className="h-screen w-full flex flex-col bg-surface overflow-hidden">
+            <header className="flex-none h-16 bg-white/90 backdrop-blur-md z-50 px-4 md:px-6 flex justify-between items-center border-b border-slate-200/60 shadow-sm">
+              <div className="flex items-center gap-3">
+                <span className="text-2xl bg-brand-50 p-1.5 rounded-xl shadow-inner-soft border border-brand-100">🗺️</span>
+                <h1 className="text-xl font-extrabold text-slate-800 tracking-tight">みっけ！ <span className="text-sm font-bold text-slate-400 ml-1">教員ポータル</span></h1>
+              </div>
+              {portal && <div className="text-xs text-slate-400 font-bold hidden sm:block">{portal.teacherEmail}</div>}
+            </header>
+
+            <div className="flex-1 overflow-y-auto custom-scrollbar">
+              {screen.type === 'manage' ? (
+                <ClassManage
+                  classCode={screen.classCode}
+                  showToast={showToast}
+                  onBack={() => { loadPortal(); setScreen({ type: 'list' }); }}
+                  onOpenApp={() => setScreen({ type: 'app', classCode: screen.classCode })}
+                  onCodeRotated={(newCode) => { loadPortal(); setScreen({ type: 'manage', classCode: newCode }); }}
+                  onRevoked={() => { loadPortal(); setScreen({ type: 'list' }); }}
+                />
+              ) : screen.type === 'created' ? (
+                <div className="max-w-2xl mx-auto p-6 sm:p-10 animate-pop-in">
+                  <div className="bg-white rounded-[32px] shadow-float border-t-[10px] border-emerald-400 p-8 sm:p-10 text-center">
+                    <span className="text-6xl block mb-4">🎉</span>
+                    <h2 className="text-2xl font-extrabold text-slate-800 mb-2">クラスができました！</h2>
+                    <p className="text-sm text-slate-500 mb-6 leading-relaxed">スプレッドシートは<strong>あなたのドライブ</strong>に作成され、アプリからの読み書きに必要な共有も自動で完了しています。<br/>あとは下の URL / QR を児童に配るだけです。</p>
+                    {makeQrDataUrl(screen.data.studentUrl) && (
+                      <img src={makeQrDataUrl(screen.data.studentUrl)} alt="児童用URLのQRコード" className="w-48 h-48 mx-auto mb-4 border-4 border-slate-100 rounded-2xl [image-rendering:pixelated]" />
+                    )}
+                    <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-mono text-sm text-slate-700 break-all mb-4">{screen.data.studentUrl}</div>
+                    <div className="flex gap-3 justify-center flex-wrap">
+                      <CopyButton text={screen.data.studentUrl} label="📋 児童用URLをコピー" />
+                      <button onClick={()=>setScreen({ type: 'manage', classCode: screen.data.classCode })} className="bg-brand-500 text-white px-6 py-2.5 rounded-xl font-bold text-sm hover:bg-brand-600 transition shadow-md">クラス管理へ →</button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="max-w-4xl mx-auto p-4 sm:p-8 space-y-6 pb-24">
+                  {classes.length === 0 ? (
+                    <div className="bg-white rounded-[32px] shadow-float border-t-[10px] border-brand-500 p-8 sm:p-12 text-center animate-pop-in mt-6">
+                      <span className="text-7xl block mb-6">🏫</span>
+                      <h2 className="text-2xl font-extrabold text-slate-800 mb-3">ようこそ、先生！</h2>
+                      <p className="text-sm text-slate-500 mb-8 leading-relaxed max-w-md mx-auto">最初のクラスを作りましょう。クラスを作ると、<strong>あなたのドライブ</strong>に記録用のスプレッドシートが自動作成され、児童用の URL と QR コードが発行されます。<br/>面倒な共有設定は一切不要です。</p>
+                      <div className="flex gap-3 max-w-md mx-auto">
+                        <input type="text" value={newClassName} onChange={e=>setNewClassName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleCreate()} placeholder="クラス名（例：3年1組）" className="flex-1 px-5 py-4 border border-slate-200 rounded-xl bg-slate-50 font-bold focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition" />
+                        <button onClick={handleCreate} disabled={creating} className="bg-brand-500 text-white px-6 py-4 rounded-xl font-bold hover:bg-brand-600 transition shadow-md whitespace-nowrap">{creating ? '作成中...' : 'クラスを作成'}</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <React.Fragment>
+                      <div className="flex items-center justify-between flex-wrap gap-3 mt-2">
+                        <h2 className="text-xl font-extrabold text-slate-800">あなたのクラス</h2>
+                      </div>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {classes.map(c => (
+                          <div key={c.classCode} className="bg-white rounded-3xl border border-slate-200 shadow-soft p-6 hover:shadow-float transition group">
+                            <div className="flex items-start justify-between mb-3">
+                              <h3 className="text-lg font-extrabold text-slate-800">{c.className}</h3>
+                              <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full ${c.joinOpen ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500'}`}>{c.joinOpen ? '受付中' : '受付停止'}</span>
+                            </div>
+                            <p className="text-xs text-slate-400 font-bold mb-1">コード: <span className="font-mono text-brand-600">{c.classCode}</span></p>
+                            <p className="text-xs text-slate-400 font-bold mb-4">児童: {c.memberCount} 人</p>
+                            <div className="flex gap-2">
+                              <button onClick={()=>setScreen({ type: 'manage', classCode: c.classCode })} className="flex-1 bg-slate-800 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-black transition">⚙️ 管理</button>
+                              <button onClick={()=>setScreen({ type: 'app', classCode: c.classCode })} className="flex-1 bg-brand-500 text-white py-2.5 rounded-xl font-bold text-sm hover:bg-brand-600 transition">🗺️ アプリ</button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="bg-white rounded-3xl border border-slate-200 shadow-soft p-6">
+                        <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2"><span>➕</span> 新しいクラスを作る</h3>
+                        <div className="flex gap-3 flex-wrap">
+                          <input type="text" value={newClassName} onChange={e=>setNewClassName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleCreate()} placeholder="クラス名（例：3年2組）" className="flex-1 min-w-[200px] px-5 py-3.5 border border-slate-200 rounded-xl bg-slate-50 font-bold focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition" />
+                          <button onClick={handleCreate} disabled={creating} className="bg-brand-500 text-white px-6 py-3.5 rounded-xl font-bold hover:bg-brand-600 transition shadow-md">{creating ? '作成中...' : '作成'}</button>
+                        </div>
+                      </div>
+                    </React.Fragment>
+                  )}
+
+                  <div className="text-center">
+                    <button onClick={()=>setShowExisting(v=>!v)} className="text-xs font-bold text-slate-400 hover:text-slate-600 underline transition">既存のスプレッドシートをクラスとして登録する（旧版からの移行）</button>
+                  </div>
+                  {showExisting && (
+                    <div className="bg-white rounded-3xl border border-slate-200 shadow-soft p-6 animate-pop-in">
+                      <h3 className="font-extrabold text-slate-800 mb-2 flex items-center gap-2"><span>📥</span> 既存シートのクラス化</h3>
+                      <p className="text-xs text-slate-500 mb-4 leading-relaxed">旧版みっけ！のデータベース（自分が編集できるスプレッドシート）を、そのままクラスとして登録します。不足しているシートは自動で補完され、旧名簿（Users_名簿）は新名簿（Members）に引き継がれます。</p>
+                      <div className="space-y-3">
+                        <input type="text" value={existingInput.url} onChange={e=>setExistingInput(p=>({...p, url: e.target.value}))} placeholder="スプレッドシートの URL または ID" className="w-full px-5 py-3.5 border border-slate-200 rounded-xl bg-slate-50 font-mono text-sm focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition" />
+                        <div className="flex gap-3 flex-wrap">
+                          <input type="text" value={existingInput.name} onChange={e=>setExistingInput(p=>({...p, name: e.target.value}))} placeholder="クラス名" className="flex-1 min-w-[160px] px-5 py-3.5 border border-slate-200 rounded-xl bg-slate-50 font-bold focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition" />
+                          <button onClick={handleRegisterExisting} disabled={creating} className="bg-slate-800 text-white px-6 py-3.5 rounded-xl font-bold hover:bg-black transition shadow-md">{creating ? '登録中...' : '登録する'}</button>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+            <Toast msg={toast?.msg} type={toast?.type} onHide={()=>setToast(null)} />
+          </div>
+        );
+      };
+
+      // ==========================================
+      // 児童ゲート（デプロイ S / ?mode=student&c=CODE）
+      // ==========================================
+      const StudentGate = () => {
+        const classCode = BOOT.classCode;
+        const api = useMemo(() => makeApi('student', classCode), [classCode]);
+        const doAction = useMemo(() => makeDoAction('student', api), [api]);
+        const [phase, setPhase] = useState({ type: 'connecting' });
+        const [joinForm, setJoinForm] = useState({ name: '', number: '' });
+        const [joining, setJoining] = useState(false);
+
+        const checkStatus = async () => {
+          try {
+            const res = await api('GetStatus');
+            if (res.state === 'active') setPhase({ type: 'app' });
+            else if (res.state === 'pending') setPhase({ type: 'pending', className: res.className });
+            else if (res.state === 'closed') setPhase({ type: 'closed', className: res.className });
+            else setPhase({ type: 'join', className: res.className, requireApproval: res.requireApproval });
+          } catch (e) {
+            if (e.message === 'NO_SHELL') setPhase({ type: 'noshell' });
+            else setPhase({ type: 'error', message: e.message });
+          }
+        };
+
+        useEffect(() => {
+          if (!classCode) { setPhase({ type: 'error', message: 'クラスコードがありません。先生からもらった URL か QR コードから開いてね' }); return; }
+          checkStatus();
+        }, []);
+
+        // 承認待ちの間は 20 秒ごとに状態を再確認（承認されたら自動で入室）
+        useEffect(() => {
+          if (phase.type !== 'pending') return;
+          const t = setInterval(checkStatus, 20000);
+          return () => clearInterval(t);
+        }, [phase.type]);
+
+        const handleJoin = async () => {
+          if (!joinForm.name.trim()) return;
+          setJoining(true);
+          try {
+            const res = await api('Join', joinForm.name.trim(), joinForm.number.trim());
+            if (res.state === 'active') setPhase({ type: 'app' });
+            else setPhase({ type: 'pending', className: phase.className });
+          } catch (e) {
+            setPhase({ type: 'error', message: e.message });
+          }
+          setJoining(false);
+        };
+
+        if (phase.type === 'connecting') return <LoadingOverlay label={<span>つないでいます...</span>} />;
+
+        if (phase.type === 'app') {
+          const ctx = { mode: 'student', classCode, api, doAction };
+          return <MainApp ctx={ctx} />;
+        }
+
+        const Card = ({ children, color = 'brand-500' }) => (
+          <div className="h-screen flex items-center justify-center bg-surface p-4">
+            <div className={`bg-white p-10 sm:p-12 rounded-[32px] shadow-float text-center max-w-md w-full border-t-[10px] border-${color} relative overflow-hidden animate-pop-in`}>
+              {children}
+            </div>
+          </div>
+        );
+
+        if (phase.type === 'join') return (
+          <Card>
+            <span className="text-6xl block mb-4">👋</span>
+            <h1 className="text-2xl font-extrabold text-slate-800 mb-1">{phase.className}</h1>
+            <p className="text-sm text-slate-500 font-bold mb-6"><RubyText text="参加" kana="さんか" />の<RubyText text="申請" kana="しんせい" />をしよう</p>
+            <div className="space-y-3 text-left">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 mb-1"><RubyText text="表示" kana="ひょうじ" />する<RubyText text="名前" kana="なまえ" />（ニックネームでもOK）</label>
+                <input type="text" value={joinForm.name} onChange={e=>setJoinForm(p=>({...p, name: e.target.value}))} placeholder="たろう" className="w-full px-5 py-4 border border-slate-200 rounded-xl bg-slate-50 font-bold focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 mb-1"><RubyText text="出席番号" kana="しゅっせきばんごう" />（なくてもOK）</label>
+                <input type="text" value={joinForm.number} onChange={e=>setJoinForm(p=>({...p, number: e.target.value}))} placeholder="12" className="w-full px-5 py-4 border border-slate-200 rounded-xl bg-slate-50 font-bold focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition" />
+              </div>
+            </div>
+            <button onClick={handleJoin} disabled={joining || !joinForm.name.trim()} className="w-full mt-6 bg-brand-500 text-white py-4 rounded-xl font-bold text-lg hover:bg-brand-600 transition shadow-float disabled:opacity-50">
+              {joining ? <span><RubyText text="申請中" kana="しんせいちゅう" />...</span> : <span><RubyText text="参加" kana="さんか" />する！</span>}
+            </button>
+            {phase.requireApproval && <p className="text-[11px] text-slate-400 mt-4"><RubyText text="先生" kana="せんせい" />が<RubyText text="承認" kana="しょうにん" />すると<RubyText text="使" kana="つか" />えるようになるよ</p>}
+          </Card>
+        );
+
+        if (phase.type === 'pending') return (
+          <Card color="amber-400">
+            <span className="text-6xl block mb-4 animate-bounce-pin">⏳</span>
+            <h1 className="text-2xl font-extrabold text-slate-800 mb-3"><RubyText text="承認" kana="しょうにん" />を<RubyText text="待" kana="ま" />っています</h1>
+            <p className="text-sm text-slate-500 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-100">
+              <RubyText text="先生" kana="せんせい" />が「OK」すると、<RubyText text="自動" kana="じどう" />でこの<RubyText text="画面" kana="がめん" />が<RubyText text="切" kana="き" />りかわるよ。<br/>このまま<RubyText text="待" kana="ま" />っていてね！
+            </p>
+          </Card>
+        );
+
+        if (phase.type === 'closed') return (
+          <Card color="slate-400">
+            <span className="text-6xl block mb-4">🚪</span>
+            <h1 className="text-2xl font-extrabold text-slate-800 mb-3"><RubyText text="受付" kana="うけつけ" />が<RubyText text="閉" kana="と" />じています</h1>
+            <p className="text-sm text-slate-500 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-100">いまは<RubyText text="新" kana="あたら" />しく<RubyText text="参加" kana="さんか" />できません。<RubyText text="先生" kana="せんせい" />に<RubyText text="確認" kana="かくにん" />してね。</p>
+          </Card>
+        );
+
+        if (phase.type === 'noshell') return (
+          <Card>
+            <span className="text-6xl block mb-4">🔑</span>
+            <h1 className="text-xl font-extrabold text-slate-800 mb-3">サインインが<RubyText text="必要" kana="ひつよう" />です</h1>
+            <p className="text-sm text-slate-500 leading-relaxed mb-5 bg-slate-50 p-4 rounded-xl border border-slate-100"><RubyText text="先生" kana="せんせい" />からもらった URL（QRコード）から<RubyText text="開" kana="ひら" />いてね。</p>
+            {BOOT.shellUrl && (
+              <a href={BOOT.shellUrl + (classCode ? ('?c=' + classCode) : '')} className="inline-block bg-brand-500 text-white px-8 py-4 rounded-xl font-bold hover:bg-brand-600 transition shadow-float">アプリの<RubyText text="入" kana="い" />り<RubyText text="口" kana="ぐち" />をひらく</a>
+            )}
+          </Card>
+        );
+
+        return (
+          <Card color="rose-400">
+            <span className="text-6xl block mb-4">⚠️</span>
+            <p className="font-bold text-slate-700 leading-relaxed text-sm">{phase.message || 'エラーが発生しました'}</p>
+            <button onClick={()=>{ setPhase({type:'connecting'}); checkStatus(); }} className="mt-6 bg-slate-800 text-white px-8 py-3 rounded-xl font-bold hover:bg-black transition">もう一度ためす</button>
+          </Card>
+        );
+      };
+
+      // ==========================================
+      // Landing（exec URL 直叩き時の誘導）
+      // ==========================================
+      const Landing = () => (
+        <div className="h-screen flex items-center justify-center bg-surface p-4">
+          <div className="bg-white p-10 sm:p-12 rounded-[32px] shadow-float text-center max-w-md w-full border-t-[10px] border-brand-500 animate-pop-in">
+            <span className="text-7xl block mb-6">🗺️</span>
+            <h1 className="text-2xl font-extrabold text-slate-800 mb-3">みっけ！</h1>
+            <p className="text-sm text-slate-500 leading-relaxed mb-6 bg-slate-50 p-4 rounded-xl border border-slate-100">
+              このページは直接開けません。<br/>
+              先生は<strong>共通 URL</strong>から、児童は<strong>先生からもらった URL / QR コード</strong>から開いてください。
+            </p>
+            {BOOT.shellUrl ? (
+              <a href={BOOT.shellUrl} className="inline-block bg-brand-500 text-white px-8 py-4 rounded-xl font-bold hover:bg-brand-600 transition shadow-float">アプリの入り口をひらく →</a>
+            ) : (
+              <p className="text-xs text-slate-400">（管理者へ: ScriptProperties の sp_shellUrl が未設定です）</p>
+            )}
+          </div>
+        </div>
+      );
+
+      // ==========================================
+      // Root
+      // ==========================================
+      const Root = () => {
+        if (BOOT.mode === 'teacher') return <TeacherPortal />;
+        if (BOOT.mode === 'student') return <StudentGate />;
+        if (BOOT.mode === 'legacy') {
+          const ctx = { mode: 'legacy', classCode: '', api: makeApi('legacy', '') };
+          ctx.doAction = makeDoAction('legacy', ctx.api);
+          return <MainApp ctx={ctx} />;
+        }
+        return <Landing />;
+      };
+
+      const root = ReactDOM.createRoot(document.getElementById('root'));
+      root.render(<Root />);
+    </script>
+  </body>
+</html>
