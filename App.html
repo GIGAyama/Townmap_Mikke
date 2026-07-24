@@ -3620,9 +3620,13 @@ var qrcode = function() {
           if (!el) return;
           const update = () => setViewport({ w: el.clientWidth, h: el.clientHeight });
           update();
-          const ro = new ResizeObserver(update);
-          ro.observe(el);
-          return () => ro.disconnect();
+          if (typeof ResizeObserver !== 'undefined') {
+            const ro = new ResizeObserver(update);
+            ro.observe(el);
+            return () => ro.disconnect();
+          }
+          window.addEventListener('resize', update);
+          return () => window.removeEventListener('resize', update);
         }, []);
 
         const url = currentMapInfo?.url || '';
@@ -3632,11 +3636,18 @@ var qrcode = function() {
           resolvedUrl.includes('drive') ? resolvedUrl :
           `https://drive.google.com/thumbnail?sz=w1500&id=${resolvedUrl.match(/id=([^&]+)/)?.[1]||resolvedUrl}`;
 
-        // 地図の切り替え時は寸法とビューをリセット
+        // 地図の切り替え時は寸法とビューをリセット。
+        // 画像がこの effect より先に読み込み完了していると onLoad は再発火しないため、
+        // 読み込み済みならここで寸法を確定する（フィットが効かないままになる競合の防止）
         useEffect(() => {
-          setNatural(null);
           view.current = { x: 0, y: 0, scale: 1 };
           applyView();
+          const img = mapRef.current;
+          if (img && img.complete && img.naturalWidth) {
+            setNatural({ w: img.naturalWidth, h: img.naturalHeight });
+          } else {
+            setNatural(null);
+          }
         }, [displayUrl]);
 
         // 表示領域に対して余白最小の contain フィット寸法（scale=1 で画面最大表示になる）
@@ -3711,7 +3722,11 @@ var qrcode = function() {
 
         const onPointerDown = (e) => {
           if(e.target.closest('button') || e.target.closest('.pin-element')) return;
-          e.currentTarget.setPointerCapture(e.pointerId);
+          // 新しい操作の開始（primary pointer）時に、pointerup が届かず取りこぼした
+          // 古いポインタ情報を掃除する（残っているとタップがピンチと誤判定され、
+          // 以後ピンがさせなくなる）
+          if (e.isPrimary) { pointers.current.clear(); gesture.current = null; suppressTap.current = false; }
+          try { e.currentTarget.setPointerCapture(e.pointerId); } catch (err) {}
           pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
 
           if (pointers.current.size === 2) {
@@ -3773,7 +3788,9 @@ var qrcode = function() {
           if (g && g.type === 'drag') {
             const dx = e.clientX - g.mx;
             const dy = e.clientY - g.my;
-            if (!g.moved && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) g.moved = true;
+            // タップ判定のしきい値。指は押している間に数px ぶれるため、タッチ/ペンは広めに取る
+            const slop = e.pointerType === 'mouse' ? 5 : 10;
+            if (!g.moved && (Math.abs(dx) > slop || Math.abs(dy) > slop)) g.moved = true;
             if (g.moved) {
               view.current.x = g.x + dx;
               view.current.y = g.y + dy;
@@ -3812,8 +3829,9 @@ var qrcode = function() {
             gesture.current = null;
             // ボタンやピンの上で指を離した場合はタップ扱いにしない
             // （ズームボタン等のタップでピン作成モーダルが誤って開くバグの修正）
+            // 先生もピンをさせる（サーバー側は教員の save_pin に元々対応済み）
             if (wasTap && !e.target.closest('button') && !e.target.closest('.pin-element')
-                && mode === 'edit' && state.user.role !== 'teacher') {
+                && mode === 'edit') {
               const pos = getPos(e);
               if(pos) setCreatingPos(pos);
             }
@@ -3861,12 +3879,10 @@ var qrcode = function() {
                 <span className="inline-block mt-1">かこんで<RubyText text="見" kana="み" />る</span>
               </button>
 
-              {state.user.role !== 'teacher' && (
-                <button onClick={(e)=>{ e.stopPropagation(); setMode('edit'); }} className={`px-3 py-2.5 sm:px-7 sm:py-3.5 rounded-full font-bold text-xs sm:text-sm transition-all flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${mode==='edit' ? 'bg-accent-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100 hover:text-accent-600'}`}>
-                  <span className="text-base sm:text-lg shrink-0">📍</span>
-                  <span className="inline-block mt-1">ピンをさす</span>
-                </button>
-              )}
+              <button onClick={(e)=>{ e.stopPropagation(); setMode('edit'); }} className={`px-3 py-2.5 sm:px-7 sm:py-3.5 rounded-full font-bold text-xs sm:text-sm transition-all flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${mode==='edit' ? 'bg-accent-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100 hover:text-accent-600'}`}>
+                <span className="text-base sm:text-lg shrink-0">📍</span>
+                <span className="inline-block mt-1">ピンをさす</span>
+              </button>
             </div>
 
             <div className="absolute bottom-24 sm:bottom-8 left-3 sm:left-6 z-overlay flex flex-col gap-2">
@@ -4044,11 +4060,9 @@ var qrcode = function() {
                     <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{state.user.group_id}</div>
                     <div className="font-extrabold text-slate-700 text-sm">{state.user.name} <span className="text-[10px] font-normal text-slate-500">さん</span></div>
                   </div>
-                  {state.user.role !== 'teacher' && (
-                    <button onClick={()=>setUiState(p=>({...p, notesOpen: !p.notesOpen, chatOpen: false}))} className={`relative p-2 sm:p-2.5 rounded-full shadow-sm hover:shadow-md border transition text-lg ${uiState.notesOpen ? 'bg-accent-50 border-accent-200' : 'bg-slate-50 border-slate-200'}`} title="わたしのきろく">
-                      📒 <span className="absolute -top-1.5 -right-1.5 bg-brand-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full shadow-sm border-2 border-white">{state.pins.filter(p=>p.email===state.user.email).length}</span>
-                    </button>
-                  )}
+                  <button onClick={()=>setUiState(p=>({...p, notesOpen: !p.notesOpen, chatOpen: false}))} className={`relative p-2 sm:p-2.5 rounded-full shadow-sm hover:shadow-md border transition text-lg ${uiState.notesOpen ? 'bg-accent-50 border-accent-200' : 'bg-slate-50 border-slate-200'}`} title="わたしのきろく">
+                    📒 <span className="absolute -top-1.5 -right-1.5 bg-brand-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full shadow-sm border-2 border-white">{state.pins.filter(p=>p.email===state.user.email).length}</span>
+                  </button>
                   <button onClick={()=>setUiState(p=>({...p, chatOpen: !p.chatOpen, notesOpen: false}))} className={`relative p-2 sm:p-2.5 rounded-full shadow-sm hover:shadow-md border transition text-lg ${uiState.chatOpen ? 'bg-brand-50 border-brand-200' : 'bg-slate-50 border-slate-200'}`} title="みんなのひろば">
                     💬 <span className="absolute -top-1.5 -right-1.5 bg-accent-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full shadow-sm border-2 border-white">{state.chats.length}</span>
                   </button>
