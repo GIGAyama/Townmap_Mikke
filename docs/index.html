@@ -77,7 +77,8 @@
       <div id="gate-fallback" class="hidden">
         <p>うまくつながらないみたい…<br>下のボタンでひらくと、ひらいた<strong>先のタブでそのまま</strong>つかえるよ。<br>（この画面はとじないでね）</p>
         <button class="btn" id="open-newtab">べつのタブでひらく</button>
-        <p class="note" id="fallback-url" style="margin-top:16px; word-break:break-all;"></p>
+        <a class="btn secondary" id="open-diag" href="diag.html" style="margin-left:8px;">🔍 接続診断</a>
+        <p class="note" id="fallback-url" style="margin-top:16px; word-break:break-all; white-space:pre-line;"></p>
       </div>
       <div id="gate-config-error" class="hidden">
         <p style="color:#e11d48; font-weight:700;">セットアップが完了していません。<br>docs/config.js の execUrlT / execUrlS / googleClientId を設定してください。</p>
@@ -128,6 +129,7 @@
     var state = {
       gisReady: false,
       appReady: false,       // iframe から app:ready を受信済みか
+      loadedInfo: null,      // iframe から app:loaded（起動ビーコン）を受信していれば内容
       frameBooted: false,
       readyTimer: null,
       needTokenPending: false
@@ -255,8 +257,10 @@
       clearTimeout(state.readyTimer);
       state.readyTimer = setTimeout(function () {
         if (state.appReady) return;
-        if (mode === 'student' && frameVariant === 0) {
-          // 素 URL で応答なし → 旧方式（パラメータ付き）で一度だけ再試行
+        // app:loaded（起動ビーコン）が届いていれば「URL の読み込み自体」は成功して
+        // いるので、URL を変えて再試行しても意味がない。届いていない場合のみ
+        // 旧方式（パラメータ付き）で一度だけ再試行する
+        if (mode === 'student' && frameVariant === 0 && !state.loadedInfo) {
           frameVariant = 1;
           reloadFrame();
           return;
@@ -264,9 +268,54 @@
         // GAS 側のログイン画面は iframe に出せないため、別タブで開かせて戻す
         gate.classList.remove('hidden');
         show('gate-fallback');
-        // 診断用: どの URL への接続に失敗したかを表示する
-        el('fallback-url').textContent = '接続先: ' + frameUrl();
+        try { el('open-diag').href = 'diag.html' + (classCode ? '?c=' + encodeURIComponent(classCode) : ''); } catch (e) {}
+        diagnoseFailure();
       }, READY_TIMEOUT_MS);
+    }
+
+    // ── 失敗原因の自動判定（fallback 画面の下部に表示） ──
+    // 判定材料:
+    //   1. app:loaded ビーコン … 届いていれば「GAS のページは iframe に読み込めている」。
+    //      libs.react=false なら CDN（unpkg 等）が学校のフィルタでブロックされている可能性が高い
+    //   2. ?diag=1 の fetch … 成功すれば「デプロイ S は匿名アクセス可」。deployKind='T' なら
+    //      実行するユーザーの設定ミス。fetch 失敗（CORS/リダイレクト）なら
+    //      「アクセスできるユーザーが全員になっていない（ログイン必須）」か「フィルタで遮断」
+    function diagnoseFailure() {
+      var lines = ['接続先: ' + frameUrl()];
+      var hintEl = el('fallback-url');
+      function render() { hintEl.textContent = lines.join('\n\n'); }
+      var info = state.loadedInfo;
+      if (info) {
+        if (info.libs && !info.libs.react) {
+          lines.push('【原因の可能性】アプリの部品（unpkg.com / cdn.tailwindcss.com）が学校のネットワークでブロックされています。ネットワーク管理者に上記ドメインの許可を依頼してください。');
+          if (info.errors && info.errors.length) lines.push('検出されたエラー: ' + info.errors.join(' / '));
+        } else {
+          lines.push('アプリのページには到達していますが、起動が完了しません。「接続診断」で詳細を確認してください。');
+        }
+        render();
+        return;
+      }
+      lines.push('アプリのページに到達できていません。原因を調べています...');
+      render();
+      var diagUrl = CFG.execUrlS + (CFG.execUrlS.indexOf('?') >= 0 ? '&' : '?') + 'diag=1';
+      fetch(diagUrl, { credentials: 'omit' })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          lines.pop();
+          if (j && j.deployKind === 'T') {
+            lines.push('【設定の問題／先生・管理者向け】児童用デプロイ（S）の「次のユーザーとして実行」が「自分」になっていません。GAS のデプロイ設定を確認してください。');
+          } else if (j && j.ok) {
+            lines.push('サーバーには接続できています（設定は正常の可能性が高い）。ページの表示だけが失敗しているため、「接続診断」で詳細を確認してください。');
+          } else {
+            lines.push('サーバーの応答が想定外です。「接続診断」で詳細を確認してください。');
+          }
+          render();
+        })
+        .catch(function () {
+          lines.pop();
+          lines.push('【原因の可能性／先生・管理者向け】\n① 児童用デプロイ（S）の「アクセスできるユーザー」が「全員」になっていない（ログインが必須になり、Cookie を送らない児童用画面では表示できません）\n② 学校のフィルタが script.google.com / googleusercontent.com を遮断している\n「接続診断」ページで自動判定できます。');
+          render();
+        });
     }
 
     el('open-newtab').addEventListener('click', function () {
@@ -323,6 +372,9 @@
         var t = getToken();
         if (t) sendToApp({ type: 'app:idToken', idToken: t, classCode: classCode });
         else requestFreshToken();
+      } else if (d.type === 'app:loaded') {
+        // 起動ビーコン: ページ到達の証拠と部品（CDN）の読み込み状況を保持
+        if (!state.loadedInfo || (d.libs && d.libs.react)) state.loadedInfo = d;
       } else if (d.type === 'app:reload') {
         reloadFrame();
       }

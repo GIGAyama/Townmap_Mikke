@@ -139,10 +139,64 @@
       swJobs.push(caches.keys().then(function (keys) { swInfo.push('キャッシュ=' + (keys.join(',') || 'なし')); }));
     }
     Promise.all(swJobs).then(function () {
-      var stale = swInfo.join(' / ').indexOf('mikke-shell-v1') >= 0 || swInfo.join(' / ').indexOf('mikke-shell-v2') >= 0;
+      // 最新キャッシュ名（docs/sw.js の CACHE_NAME）以外の mikke-shell-* が残っていたら古い
+      var CURRENT_CACHE = 'mikke-shell-v5';
+      var joined = swInfo.join(' / ');
+      var stale = /mikke-shell-v\d+/.test(joined) && joined.indexOf(CURRENT_CACHE) < 0 ||
+        ['v1', 'v2', 'v3', 'v4'].some(function (v) { return joined.indexOf('mikke-shell-' + v) >= 0; });
       setStep('sw', stale ? 'ng' : 'ok', 'シェルのキャッシュ状態',
         swInfo.join(' / ') + (stale ? ' → 古いシェルが残っています。「キャッシュを全部消して再読み込み」を押してください' : ''));
     }).catch(function (e) { setStep('sw', 'ok', 'シェルのキャッシュ状態', '確認不可: ' + e); });
+
+    // ── 2.5 サーバー設定の自動判定（?diag=1 エンドポイント） ──
+    // Cookie なしの fetch でこの JSON が読めた時点で「デプロイ S は匿名アクセス可
+    // （アクセスできるユーザー: 全員）」が確定する。ログイン必須設定だと Google が
+    // accounts.google.com へリダイレクトするため fetch が失敗する。
+    setStep('srv', 'wait', 'デプロイSのサーバー設定', '確認中...');
+    (function () {
+      var diagUrl = CFG.execUrlS + (CFG.execUrlS.indexOf('?') >= 0 ? '&' : '?') + 'diag=1';
+      fetch(diagUrl, { credentials: 'omit' })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (!j || !j.ok) { setStep('srv', 'ng', 'デプロイSのサーバー設定', '想定外の応答: ' + JSON.stringify(j).slice(0, 200)); return; }
+          var problems = [];
+          if (j.deployKind === 'T') problems.push('「次のユーザーとして実行」が「自分」になっていません（児童の読み書きができません）');
+          if (!j.config || !j.config.appAccount) problems.push('ScriptProperties の sp_appAccountEmail が未設定です');
+          if (!j.config || !j.config.clientId) problems.push('ScriptProperties の sp_googleClientId が未設定です（トークン検証が全滅します）');
+          var shellUrl = (j.config && j.config.shellUrl) || '';
+          if (!shellUrl) {
+            problems.push('ScriptProperties の sp_shellUrl が未設定です');
+          } else {
+            var m = shellUrl.match(/^(https?:\/\/[^\/]+)/);
+            if (m && m[1].toLowerCase() !== location.origin.toLowerCase()) {
+              problems.push('sp_shellUrl のオリジン（' + m[1] + '）がこのページ（' + location.origin + '）と一致しません → ハンドシェイクが全て無視されます');
+            }
+          }
+          if (problems.length) setStep('srv', 'ng', 'デプロイSのサーバー設定', problems.join(' / '));
+          else setStep('srv', 'ok', 'デプロイSのサーバー設定', '匿名アクセス可・実行者=アプリアカウント・設定OK（schema v' + j.schemaVersion + '）');
+        })
+        .catch(function (e) {
+          setStep('srv', 'ng', 'デプロイSのサーバー設定',
+            'Cookie なしで接続できません。原因の可能性: ①「アクセスできるユーザー」が「全員」になっていない（ログイン必須のため児童用画面では表示不可） ' +
+            '②GAS 側コードが古く ?diag=1 に未対応 ③フィルタが script.google.com を遮断。詳細: ' + e);
+        });
+    })();
+
+    // ── 2.6 アプリ部品（CDN）の到達性 ──
+    // アプリ本体は unpkg.com（React/Babel）と cdn.tailwindcss.com に依存する。
+    // 学校のフィルタでこれらが遮断されていると、GAS のページは表示できても
+    // アプリが起動しない（＝真っ白 / 応答なし）
+    ;[
+      { id: 'cdn1', name: 'アプリ部品: unpkg.com (React)', url: 'https://unpkg.com/react@18/umd/react.production.min.js' },
+      { id: 'cdn2', name: 'アプリ部品: cdn.tailwindcss.com', url: 'https://cdn.tailwindcss.com' }
+    ].forEach(function (c) {
+      setStep(c.id, 'wait', c.name, '確認中...');
+      var s2 = document.createElement('script');
+      s2.src = c.url; s2.async = true;
+      s2.onload = function () { setStep(c.id, 'ok', c.name, '到達できます'); };
+      s2.onerror = function () { setStep(c.id, 'ng', c.name, '遮断されています（学校のフィルタの可能性）。このドメインの許可をネットワーク管理者に依頼してください'); };
+      document.head.appendChild(s2);
+    });
 
     // ── 3. credentialless 対応 ──
     var credSupported = ('credentialless' in HTMLIFrameElement.prototype);
@@ -164,6 +218,7 @@
     var t0 = Date.now();
     var done = {};
     var frames = {};
+    var loaded = {};   // app:loaded（起動ビーコン）の受信内容
 
     Object.keys(TESTS).forEach(function (key) {
       var t = TESTS[key];
@@ -173,10 +228,19 @@
       setStep('frame' + key, 'wait', t.name, '読み込み中...');
       f.src = t.url;
       setTimeout(function () {
-        if (!done[key]) {
-          done[key] = true;
+        if (done[key]) return;
+        done[key] = true;
+        var li = loaded[key];
+        if (li && li.libs && !li.libs.react) {
           setStep('frame' + key, 'ng', t.name,
-            TIMEOUT_MS / 1000 + '秒待ちましたがアプリから応答がありません。枠内の表示（「ファイルを開くことができません」かどうか）を確認してください。' + (t.hint || ''));
+            'ページ自体は届きましたが、アプリの部品（unpkg.com の React）が読み込めず起動できません。上の「アプリ部品」の結果を確認してください。' +
+            (li.errors && li.errors.length ? ' 検出エラー: ' + li.errors.join(' / ') : ''));
+        } else if (li) {
+          setStep('frame' + key, 'ng', t.name,
+            'ページには到達しました（mode=' + (li.mode || '?') + '）が、アプリの起動完了(app:ready)まで進みません。' + (t.hint || ''));
+        } else {
+          setStep('frame' + key, 'ng', t.name,
+            TIMEOUT_MS / 1000 + '秒待ちましたがページから何の応答もありません。枠内の表示（「ファイルを開くことができません」やログイン画面かどうか）を確認してください。' + (t.hint || ''));
         }
       }, TIMEOUT_MS);
     });
@@ -189,7 +253,16 @@
       if (!okOrigin) return;
       var ms = (Date.now() - t0);
       Object.keys(TESTS).forEach(function (key) {
-        if (!done[key] && frames[key].contentWindow && ev.source === frames[key].contentWindow) {
+        if (!frames[key].contentWindow || ev.source !== frames[key].contentWindow) return;
+        if (d.type === 'app:loaded') {
+          loaded[key] = d;
+          if (!done[key]) {
+            setStep('frame' + key, 'wait', TESTS[key].name,
+              'ページ到達（mode=' + (d.mode || '?') + ' / React=' + (d.libs && d.libs.react ? 'OK' : '未') + '）。アプリ起動を待っています...');
+          }
+          return;
+        }
+        if (!done[key]) {
           done[key] = true;
           setStep('frame' + key, 'ok', TESTS[key].name, ms + 'ms で応答（正常・' + d.type + (d.mode ? '/' + d.mode : '') + '）');
         }
