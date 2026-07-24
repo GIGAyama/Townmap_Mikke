@@ -103,6 +103,7 @@ function jsonErr_(e) {
  */
 function doGet(e) {
   const p = (e && e.parameter) || {};
+  if (p.diag === '1') return doGetDiag_();
   let bound = null;
   try { bound = SpreadsheetApp.getActiveSpreadsheet(); } catch (err) { bound = null; }
   const mode = p.portal === '1' ? 'teacher'
@@ -121,4 +122,41 @@ function doGet(e) {
     // その代償として、ID トークン検証（Auth.gs）とシェル側 origin 検証を必須の防御線とする。
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
+}
+
+/**
+ * 接続診断エンドポイント（?diag=1）。docs/diag.html とシェルのフォールバック画面が
+ * fetch して「このデプロイに匿名で届くか・S/T どちらの設定か・初期設定が済んでいるか」を
+ * 判定する。秘密情報（メールアドレス・ID・トークン）は一切返さない。
+ *
+ * 判定の仕組み:
+ *   - この JSON が Cookie なしの fetch で読めた時点で「アクセスできるユーザー: 全員
+ *     （＝匿名アクセス可）」が確定する。ログイン必須設定だと Google が
+ *     accounts.google.com へリダイレクトするため fetch 自体が失敗する。
+ *   - deployKind: 実効ユーザーがアプリアカウントなら 'S'（自分として実行）、
+ *     それ以外のログインユーザーなら 'T'。匿名到達時に実効ユーザーが空なら、
+ *     「全員に公開されているのに実行者がアプリアカウントでない」= S の設定ミス。
+ *     （注: アプリアカウント本人のブラウザから T を開いた場合も 'S' と出る）
+ */
+function doGetDiag_() {
+  let effective = '';
+  let active = '';
+  try { effective = String(Session.getEffectiveUser().getEmail() || '').toLowerCase(); } catch (e) {}
+  try { active = String(Session.getActiveUser().getEmail() || '').toLowerCase(); } catch (e) {}
+  const appAccount = String(getSetting_(PROP_KEYS.APP_ACCOUNT, false) || '').toLowerCase();
+  const out = {
+    ok: true,
+    app: CONFIG.APP_NAME,
+    schemaVersion: CONFIG.SCHEMA_VERSION,
+    deployKind: !effective ? 'unknown'
+              : (appAccount && effective === appAccount) ? 'S' : 'T',
+    anonymousAccess: !active,
+    config: {
+      appAccount: !!appAccount,
+      clientId: !!getSetting_(PROP_KEYS.CLIENT_ID, false),
+      shellUrl: getShellUrl_()  // 児童用 URL に含まれる公開情報のため露出可
+    }
+  };
+  return ContentService.createTextOutput(JSON.stringify(out))
+    .setMimeType(ContentService.MimeType.JSON);
 }

@@ -5,6 +5,45 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
     <title>みっけ！</title>
 
+    <!-- 起動ビーコン（診断・シェル用 / 全モード共通・秘密情報は含まない）。
+         CDN（React/Babel/Tailwind）より前に置いた素の JS なので、学校のフィルタで
+         CDN がブロックされてアプリ本体が起動できない場合でも
+         「GAS のページ自体は届いている・どの部品が読めていないか」を外側へ通知できる。 -->
+    <script>
+      (function () {
+        var mode = '<?= bootMode ?>';
+        var shellOrigin = '<?= bootShellOrigin ?>' || '*';
+        var errors = [];
+        window.addEventListener('error', function (ev) {
+          try {
+            var m = (ev && ev.message) ||
+              (ev && ev.target && (ev.target.src || ev.target.href)) || 'unknown';
+            if (errors.length < 5) errors.push(String(m).slice(0, 200));
+          } catch (e) {}
+        }, true);
+        var n = 0;
+        var send = function () {
+          n++;
+          var msg = {
+            type: 'app:loaded',
+            mode: mode,
+            libs: {
+              react: typeof React !== 'undefined',
+              babel: typeof Babel !== 'undefined',
+              tailwind: typeof tailwind !== 'undefined'
+            },
+            errors: errors.slice()
+          };
+          [window.parent, window.top, window.opener].forEach(function (w) {
+            try { if (w && w !== window) w.postMessage(msg, shellOrigin); } catch (e) {}
+          });
+          if (n >= 10) clearInterval(iv);
+        };
+        var iv = setInterval(send, 800);
+        send();
+      })();
+    </script>
+
     <!-- React & Babel -->
     <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -2458,22 +2497,8 @@ var qrcode = function() {
       };
       if (BOOT.mode === 'student') { Bridge.init(); Bridge._post({ type: 'app:ready' }); }
 
-      // 診断・シェル用の軽量ビーコン（全モード共通・秘密情報は含まない）。
-      // 「アプリのページ自体は読み込めているか」を外側から判定できるようにする
-      (function () {
-        let n = 0;
-        const beacon = () => {
-          n++;
-          const msg = { type: 'app:loaded', mode: BOOT.mode };
-          const target = BOOT.shellOrigin || '*';
-          [window.parent, window.top, window.opener].forEach((w) => {
-            try { if (w && w !== window) w.postMessage(msg, target); } catch (e) {}
-          });
-          if (n >= 5) clearInterval(iv);
-        };
-        const iv = setInterval(beacon, 800);
-        beacon();
-      })();
+      // 起動ビーコン（app:loaded）は <head> 冒頭の素の JS に移動した。
+      // CDN ブロックで Babel が動かない環境でも到達を通知するため、ここには置かない。
 
       // ── API ラッパー ──
       //  student: st<name>(idToken, classCode, ...) — トークン期限切れは自動再取得してリトライ
