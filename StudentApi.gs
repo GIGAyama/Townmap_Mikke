@@ -118,7 +118,12 @@ function stSyncData(idToken, classCode, unitId) {
   try {
     const g = guardStudent_(idToken, classCode);
     const units = getTableData_(g.ss, TABLES.UNITS);
-    const activeUnit = formatUnit_(units.filter(function (u) { return u.unit_id === unitId; })[0] || null);
+    // 現在アクティブな単元を返す（要求された unitId 固定だと、先生が新しい単元を
+    // 開始しても児童側が永久に切り替わらないため）。フロントは unit_id の変化を
+    // 検知して全データを取り直す
+    const activeUnit = formatUnit_(
+      units.filter(function (u) { return u.is_active === true; })[0] ||
+      units.filter(function (u) { return u.unit_id === unitId; })[0] || null);
     const data = coreCollectUnitData_(g.ss, unitId);
     return jsonOk_({
       pins: sanitizeRecords_(data.pins),

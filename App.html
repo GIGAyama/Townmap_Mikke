@@ -2,7 +2,7 @@
 <html lang="ja">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>みっけ！</title>
 
     <!-- 起動ビーコン（診断・シェル用 / 全モード共通・秘密情報は含まない）。
@@ -96,6 +96,10 @@
 
       .glass-panel { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.6); }
       .smooth-map-container { will-change: transform; transform-origin: center; }
+      /* モバイルブラウザのアドレスバーを除いた実表示領域に合わせる（100vh だと下が隠れる端末対策） */
+      .app-h { height: 100vh; height: 100dvh; }
+      /* 地図領域はブラウザ標準のパン/ズームを無効化し、アプリ側でドラッグ・ピンチを処理する */
+      .map-viewport { touch-action: none; }
 
       @keyframes bouncePin { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-20px); } }
       .animate-bounce-pin { animation: bouncePin 1s infinite ease-in-out; }
@@ -2551,11 +2555,17 @@ var qrcode = function() {
           if (action === 'save_pin') return api('Submit', { type: 'pin', ...data });
           if (action === 'save_chat') return api('Submit', { type: 'chat', ...data });
           if (action === 'toggle_reaction') return api('Submit', { type: 'reaction', ...data });
+          if (action === 'update_pin') return api('UpdateMine', data.pin_id, data);
           if (action === 'delete_pin') return api('DeleteMine', data.pin_id);
           if (action === 'delete_chat') return api('DeleteMine', data.chat_id);
           throw new Error('この操作はできません');
         }
         return api('ExecuteAction', JSON.stringify({ action, ...data }));
+      };
+
+      // Enter キー送信の共通ハンドラ。日本語 IME の変換確定 Enter では発火させない
+      const onEnterKey = (fn) => (e) => {
+        if (e.key === 'Enter' && !e.nativeEvent.isComposing) fn();
       };
 
       const PIN_COLORS = ['#f43f5e', '#0ea5e9', '#eab308', '#22c55e', '#a855f7'];
@@ -2677,8 +2687,12 @@ var qrcode = function() {
         <div className="fixed inset-0 bg-white/90 z-toast flex items-center justify-center backdrop-blur-sm no-print">
           <div className="text-center flex flex-col items-center">
             <div className="relative mb-6 w-16 h-16">
-              <div className="text-6xl text-brand-500 animate-bounce-pin absolute bottom-2 left-1/2 -translate-x-1/2 z-10 drop-shadow-md">📍</div>
-              <div className="w-10 h-3 bg-slate-300 rounded-[50%] animate-shadow-pulse absolute -bottom-1 left-1/2 -translate-x-1/2"></div>
+              <div className="absolute bottom-2 left-1/2 -translate-x-1/2 z-10">
+                <div className="text-6xl text-brand-500 animate-bounce-pin drop-shadow-md">📍</div>
+              </div>
+              <div className="absolute -bottom-1 left-1/2 -translate-x-1/2">
+                <div className="w-10 h-3 bg-slate-300 rounded-[50%] animate-shadow-pulse"></div>
+              </div>
             </div>
             <p className="text-xl font-extrabold text-brand-600 animate-pulse tracking-wider">
               {label || <span><RubyText text="準備" kana="じゅんび" />しています...</span>}
@@ -2690,10 +2704,14 @@ var qrcode = function() {
       const Toast = ({ msg, type = 'success', onHide }) => {
         useEffect(() => { const t = setTimeout(onHide, 3000); return () => clearTimeout(t); }, [msg]);
         if(!msg) return null;
+        // センタリング（-translate-x-1/2）と pop-in アニメーションの transform が
+        // 打ち消し合わないよう、要素を分ける
         return (
-          <div className="fixed bottom-24 sm:bottom-10 left-1/2 -translate-x-1/2 z-toast animate-pop-in bg-slate-800 text-white px-6 py-3.5 rounded-full shadow-float font-bold flex items-center gap-3 no-print max-w-[90vw]">
-            <span className="text-xl">{type === 'error' ? '⚠️' : '✨'}</span>
-            <span className="text-sm">{msg}</span>
+          <div className="fixed bottom-24 sm:bottom-10 left-1/2 -translate-x-1/2 z-toast no-print max-w-[90vw]">
+            <div className="animate-pop-in bg-slate-800 text-white px-6 py-3.5 rounded-full shadow-float font-bold flex items-center gap-3">
+              <span className="text-xl">{type === 'error' ? '⚠️' : '✨'}</span>
+              <span className="text-sm">{msg}</span>
+            </div>
           </div>
         );
       };
@@ -3155,24 +3173,37 @@ var qrcode = function() {
         );
       };
 
-      const PinCreateModal = ({ pos, onClose }) => {
+      // モーダルをパネル等のスタッキングコンテキスト（backdrop-filter 等）の外に出すためのポータル
+      const Portal = ({ children }) => ReactDOM.createPortal(children, document.body);
+
+      // ピンの作成（pos 指定）と編集（pin 指定）を 1 つのフォームで行う
+      const PinFormModal = ({ pos, pin, onClose }) => {
         const { state, showToast, dispatch, doAction } = useContext(AppContext);
-        const [form, setForm] = useState({ color: PIN_COLORS[0], title: '', memo: '', imageUrl: null });
+        const isEdit = !!pin;
+        const [form, setForm] = useState(isEdit
+          ? { color: pin.color, title: String(pin.title || ''), memo: String(pin.memo || ''), imageUrl: pin.image_url || null }
+          : { color: PIN_COLORS[0], title: '', memo: '', imageUrl: null });
         const [loading, setLoading] = useState(false);
 
         const handleSubmit = async () => {
-          if (!form.title) return showToast(<span><RubyText text="名前" kana="なまえ" />をかいてね</span>, 'error');
+          if (!form.title.trim()) return showToast(<span><RubyText text="名前" kana="なまえ" />をかいてね</span>, 'error');
           setLoading(true);
-          const newPinId = `p_${Date.now()}`;
-          const payload = {
-            pin_id: newPinId, unit_id: state.activeUnit.unit_id,
-            map_id: state.activeMapId, email: state.user.email, x: pos.x, y: pos.y, color: form.color,
-            title: form.title, memo: form.memo, image_url: form.imageUrl || ''
-          };
           try {
-            await doAction('save_pin', payload);
-            showToast('ピンをさしました！');
-            dispatch(p => ({...p, pins: [...p.pins, payload]}));
+            if (isEdit) {
+              const changes = { pin_id: pin.pin_id, color: form.color, title: form.title, memo: form.memo, image_url: form.imageUrl || '' };
+              await doAction('update_pin', changes);
+              dispatch(p => ({...p, pins: p.pins.map(x => x.pin_id === pin.pin_id ? { ...x, ...changes } : x)}));
+              showToast('きろくをなおしました！');
+            } else {
+              const payload = {
+                pin_id: `p_${Date.now()}`, unit_id: state.activeUnit.unit_id,
+                map_id: state.activeMapId, email: state.user.email, x: pos.x, y: pos.y, color: form.color,
+                title: form.title, memo: form.memo, image_url: form.imageUrl || ''
+              };
+              await doAction('save_pin', payload);
+              showToast('ピンをさしました！');
+              dispatch(p => ({...p, pins: [...p.pins, payload]}));
+            }
             onClose();
           } catch(e) { showToast(e.message || 'エラーがおきました', 'error'); }
           setLoading(false);
@@ -3181,13 +3212,14 @@ var qrcode = function() {
         const customStamps = state.activeUnit?.custom_stamps || [];
 
         return (
+          <Portal>
           <div className="fixed inset-0 bg-slate-900/60 z-modal flex items-center justify-center p-4 backdrop-blur-sm animate-pop-in"
                onPointerDown={e=>e.stopPropagation()} onPointerUp={e=>e.stopPropagation()}>
-            <div className="bg-white w-full max-w-md rounded-[24px] shadow-float flex flex-col overflow-hidden">
-              <div className="bg-accent-500 px-6 py-4 text-white font-bold flex justify-between items-center relative">
+            <div className="bg-white w-full max-w-md rounded-[24px] shadow-float flex flex-col overflow-hidden max-h-[92vh] overflow-y-auto custom-scrollbar">
+              <div className="bg-accent-500 px-6 py-4 text-white font-bold flex justify-between items-center relative shrink-0">
                 <span className="flex items-center gap-2 text-lg">
-                  <span className="bg-white/20 p-1.5 rounded-lg leading-none">📍</span>
-                  <span>ピンをさす</span>
+                  <span className="bg-white/20 p-1.5 rounded-lg leading-none">{isEdit ? '✏️' : '📍'}</span>
+                  <span>{isEdit ? <span>きろくをなおす</span> : <span>ピンをさす</span>}</span>
                 </span>
                 <button onClick={onClose} className="text-white/70 hover:text-white hover:bg-white/20 p-2 rounded-full transition"><SvgIcon.Close /></button>
               </div>
@@ -3235,21 +3267,23 @@ var qrcode = function() {
                   </div>
                 )}
                 <button onClick={handleSubmit} disabled={loading} className="w-full bg-accent-500 text-white font-bold text-lg py-4 rounded-xl shadow-float hover:bg-accent-600 active:scale-95 transition-all flex items-center justify-center gap-2">
-                  {loading ? <span><RubyText text="送信中" kana="そうしんちゅう" />...</span> : <span>けってい！</span>}
+                  {loading ? <span><RubyText text="送信中" kana="そうしんちゅう" />...</span> : (isEdit ? <span>ほぞんする！</span> : <span>けってい！</span>)}
                 </button>
               </div>
             </div>
           </div>
+          </Portal>
         );
       };
 
-      const PinDetailModal = ({ pin, onClose }) => {
+      const PinDetailModal = ({ pin, onClose, onEdit }) => {
         const { state, showToast, dispatch, doAction, canAdmin } = useContext(AppContext);
         const [isDeleting, setIsDeleting] = useState(false);
         const [confirmDelete, setConfirmDelete] = useState(false);
         const [comment, setComment] = useState('');
 
-        const isOwnerOrTeacher = state.user.email === pin.email || canAdmin;
+        const isOwner = state.user.email === pin.email;
+        const isOwnerOrTeacher = isOwner || canAdmin;
         const authorInfo = state.users.find(u => u.email === pin.email) || {name: '不明', group_id: '?'};
         const pinComments = state.chats.filter(c => c.target_type === 'pin' && c.target_id === pin.pin_id);
 
@@ -3325,7 +3359,12 @@ var qrcode = function() {
                   </div>
 
                   {isOwnerOrTeacher && (
-                    <div className="flex justify-end pt-6 mt-4 border-t border-slate-100">
+                    <div className="flex justify-between items-center gap-2 pt-6 mt-4 border-t border-slate-100">
+                      {isOwner && onEdit ? (
+                        <button onClick={() => onEdit(pin)} className="text-brand-600 font-bold text-xs sm:text-sm bg-brand-50 px-4 py-2 rounded-full hover:bg-brand-100 transition flex items-center gap-1.5">
+                          ✏️ なおす（<RubyText text="編集" kana="へんしゅう" />）
+                        </button>
+                      ) : <span />}
                       {!confirmDelete ? (
                         <button onClick={() => setConfirmDelete(true)} className="text-rose-500 font-bold text-xs sm:text-sm bg-rose-50 px-4 py-2 rounded-full hover:bg-rose-100 transition flex items-center gap-1.5">
                           <SvgIcon.Trash /> <RubyText text="削除" kana="さくじょ" />する
@@ -3343,7 +3382,7 @@ var qrcode = function() {
               </div>
 
               <div className="p-4 sm:p-5 border-t border-slate-200 bg-surface shrink-0 flex gap-2">
-                <input type="text" value={comment} onChange={e=>setComment(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSendComment()} placeholder="コメントをかく..." className="flex-1 bg-white border border-slate-200 rounded-full px-5 py-3 outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 font-medium text-sm transition shadow-sm" />
+                <input type="text" value={comment} onChange={e=>setComment(e.target.value)} onKeyDown={onEnterKey(handleSendComment)} placeholder="コメントをかく..." className="flex-1 bg-white border border-slate-200 rounded-full px-5 py-3 outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 font-medium text-sm transition shadow-sm" />
                 <button onClick={handleSendComment} className="bg-brand-500 text-white w-12 h-12 rounded-full flex items-center justify-center shadow-md hover:bg-brand-600 transition shrink-0"><SvgIcon.Send /></button>
               </div>
             </div>
@@ -3353,8 +3392,11 @@ var qrcode = function() {
 
       const PinIcon = ({ color, onClick, isNew }) => {
         const isEmoji = !color.startsWith('#');
+        // isNew のアニメーションは内側のラッパーに掛ける（外側の -translate-x/y による
+        // 位置合わせが keyframes の transform に上書きされてズレるのを防ぐ）
         return (
-          <div onClick={onClick} className={`pin-element absolute -translate-x-1/2 -translate-y-full cursor-pointer flex items-end justify-center transition-transform duration-200 ${isNew ? 'animate-pop-in' : 'hover:scale-110 hover:-translate-y-full active:scale-95'} drop-shadow-xl hover:drop-shadow-2xl z-10`} style={{ width: '52px', height: '52px', pointerEvents: 'auto', color: isEmoji ? '#333' : color }}>
+          <div onClick={onClick} className={`pin-element absolute -translate-x-1/2 -translate-y-full cursor-pointer transition-transform duration-200 ${isNew ? '' : 'hover:scale-110 hover:-translate-y-full active:scale-95'} drop-shadow-xl hover:drop-shadow-2xl z-10`} style={{ width: '52px', height: '52px', pointerEvents: 'auto', color: isEmoji ? '#333' : color }}>
+          <div className={`w-full h-full flex items-end justify-center ${isNew ? 'animate-pop-in' : ''}`}>
             {isEmoji ? (
               <div className="w-11 h-11 bg-white rounded-full shadow-md border-2 border-slate-200 flex items-center justify-center text-xl mb-1.5 relative">
                 <span className="translate-y-[1px]">{color}</span>
@@ -3366,6 +3408,7 @@ var qrcode = function() {
                 <path d="M12 2C8.13 2 5 5.13 5 9c0 5.25 7 13 7 13s7-7.75 7-13c0-3.87-3.13-7-7-7zm0 9.5c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
               </svg>
             )}
+          </div>
           </div>
         );
       };
@@ -3392,7 +3435,7 @@ var qrcode = function() {
         const isChatEnabled = state.activeUnit?.chat_enabled;
 
         return (
-          <div className="absolute right-0 top-0 bottom-0 w-full md:w-96 bg-white/95 backdrop-blur-xl border-l border-white/40 shadow-[-10px_0_30px_rgba(0,0,0,0.05)] flex flex-col z-40 animate-slide-in-right"
+          <div className="absolute right-0 top-0 bottom-0 w-full md:w-96 bg-white/95 backdrop-blur-xl border-l border-white/40 shadow-[-10px_0_30px_rgba(0,0,0,0.05)] flex flex-col z-[8500] animate-slide-in-right"
                onPointerDown={e=>e.stopPropagation()} onPointerUp={e=>e.stopPropagation()}>
             <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center shrink-0 bg-white/50">
               <h3 className="font-bold text-slate-800 flex items-center gap-2">
@@ -3428,11 +3471,11 @@ var qrcode = function() {
                     )}
                     <div className={`flex flex-col gap-1.5 ${isMe ? 'items-end' : 'items-start'}`}>
                       <div className="flex items-end gap-2">
-                        {isMe && <button onClick={()=>setReplyTo(c)} className="opacity-0 group-hover:opacity-100 text-xs font-bold text-slate-400 hover:text-brand-500 transition"><RubyText text="返信" kana="へんしん" /></button>}
+                        {isMe && (isChatEnabled || canAdmin) && <button onClick={()=>setReplyTo(c)} className="opacity-0 group-hover:opacity-100 text-xs font-bold text-slate-400 hover:text-brand-500 transition"><RubyText text="返信" kana="へんしん" /></button>}
                         <div className={`px-4 py-2.5 rounded-[20px] max-w-[240px] break-words shadow-sm font-medium text-[13px] leading-relaxed ${isMe ? 'bg-brand-500 text-white rounded-tr-sm' : 'bg-white border border-slate-200 text-slate-800 rounded-tl-sm'}`}>
                           {c.message}
                         </div>
-                        {!isMe && isChatEnabled && <button onClick={()=>setReplyTo(c)} className="opacity-0 group-hover:opacity-100 text-xs font-bold text-slate-400 hover:text-brand-500 transition"><RubyText text="返信" kana="へんしん" /></button>}
+                        {!isMe && (isChatEnabled || canAdmin) && <button onClick={()=>setReplyTo(c)} className="opacity-0 group-hover:opacity-100 text-xs font-bold text-slate-400 hover:text-brand-500 transition"><RubyText text="返信" kana="へんしん" /></button>}
                       </div>
                       <div className={`scale-[0.85] origin-top ${isMe ? 'origin-right' : 'origin-left'}`}><ReactionBar targetType="chat" targetId={c.chat_id} /></div>
                     </div>
@@ -3451,7 +3494,7 @@ var qrcode = function() {
                   </div>
                 )}
                 <div className="flex gap-2">
-                  <input type="text" value={msg} onChange={e=>setMsg(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleSend()} placeholder="メッセージ..." className="flex-1 bg-white border border-slate-200 rounded-full px-5 py-3 outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 font-medium text-sm shadow-sm transition" />
+                  <input type="text" value={msg} onChange={e=>setMsg(e.target.value)} onKeyDown={onEnterKey(handleSend)} placeholder="メッセージ..." className="flex-1 bg-white border border-slate-200 rounded-full px-5 py-3 outline-none focus:ring-2 focus:ring-brand-500 focus:border-brand-500 font-medium text-sm shadow-sm transition" />
                   <button onClick={handleSend} className="bg-brand-500 text-white w-12 h-12 rounded-full flex items-center justify-center shadow-md hover:bg-brand-600 transition shrink-0"><SvgIcon.Send /></button>
                 </div>
               </div>
@@ -3464,21 +3507,101 @@ var qrcode = function() {
         );
       };
 
+      // ── わたしのきろく（自分の気づきの一覧・整理・再編集）──
+      const MyNotesPanel = ({ isOpen, onClose }) => {
+        const { state, dispatch } = useContext(AppContext);
+        const [editingPin, setEditingPin] = useState(null);
+        const [query, setQuery] = useState('');
+
+        if (!isOpen) return null;
+        const maps = state.activeUnit?.maps || [];
+        const mapName = (id) => maps.find(m => m.id === id)?.name || '';
+        const q = query.trim();
+        const mine = state.pins
+          .filter(p => p.email === state.user.email)
+          .filter(p => !q || (String(p.title || '') + String(p.memo || '')).includes(q))
+          .slice().reverse(); // 新しい順
+
+        return (
+          <div className="absolute right-0 top-0 bottom-0 w-full md:w-96 bg-white/95 backdrop-blur-xl border-l border-white/40 shadow-[-10px_0_30px_rgba(0,0,0,0.05)] flex flex-col z-[8500] animate-slide-in-right"
+               onPointerDown={e=>e.stopPropagation()} onPointerUp={e=>e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-slate-100 flex justify-between items-center shrink-0 bg-white/50">
+              <h3 className="font-bold text-slate-800 flex items-center gap-2">
+                <span className="bg-accent-50 text-accent-600 p-1.5 rounded-lg text-sm">📒</span>
+                わたしのきろく <span className="text-xs text-slate-400 font-bold">({mine.length}件)</span>
+              </h3>
+              <button onClick={onClose} className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-2 rounded-full transition"><SvgIcon.Close /></button>
+            </div>
+
+            <div className="px-4 pt-3 shrink-0">
+              <input type="text" value={query} onChange={e=>setQuery(e.target.value)} placeholder="🔍 ことばでさがす..."
+                     className="w-full bg-white border border-slate-200 rounded-full px-4 py-2.5 outline-none focus:ring-2 focus:ring-accent-400 font-medium text-sm shadow-sm transition" />
+            </div>
+
+            <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+              {mine.map(pin => (
+                <div key={pin.pin_id} className="bg-white p-3.5 rounded-2xl border border-slate-200 shadow-sm flex flex-col gap-2">
+                  <div className="flex gap-3 items-start">
+                    {pin.image_url ? (
+                      <SmartImg src={pin.image_url} className="w-14 h-14 rounded-xl object-cover border border-slate-100 shrink-0" />
+                    ) : (
+                      <div className="w-14 h-14 bg-slate-50 rounded-xl flex items-center justify-center text-2xl shrink-0 border border-slate-100 shadow-inner-soft">
+                        {String(pin.color || '').startsWith('#') ? '📍' : pin.color}
+                      </div>
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <h4 className="font-bold text-slate-800 text-sm truncate">{pin.title}</h4>
+                      <p className="text-xs text-slate-500 line-clamp-2 leading-relaxed">{pin.memo || 'メモはありません'}</p>
+                      {maps.length > 1 && <span className="inline-block mt-1 text-[10px] font-bold text-slate-400 bg-slate-100 px-2 py-0.5 rounded-full">🗺️ {mapName(pin.map_id)}</span>}
+                    </div>
+                  </div>
+                  <div className="flex gap-2 justify-end pt-1 border-t border-slate-50">
+                    <button onClick={() => { if (pin.map_id !== state.activeMapId) dispatch(p=>({...p, activeMapId: pin.map_id})); onClose(); }}
+                            className="text-[11px] font-bold text-slate-500 bg-slate-100 hover:bg-slate-200 px-3 py-1.5 rounded-full transition">
+                      🗺️ <RubyText text="地図" kana="ちず" />で<RubyText text="見" kana="み" />る
+                    </button>
+                    <button onClick={() => setEditingPin(pin)}
+                            className="text-[11px] font-bold text-brand-600 bg-brand-50 hover:bg-brand-100 px-3 py-1.5 rounded-full transition">
+                      ✏️ なおす
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {mine.length === 0 && (
+                <div className="text-center py-12 text-slate-400 text-sm font-bold bg-slate-50 rounded-2xl border border-dashed border-slate-200">
+                  {q ? 'みつかりませんでした' : <span>まだきろくがないよ。<br/><RubyText text="地図" kana="ちず" />をタップしてピンをさそう！</span>}
+                </div>
+              )}
+            </div>
+
+            {editingPin && <PinFormModal pin={editingPin} onClose={() => setEditingPin(null)} />}
+          </div>
+        );
+      };
+
       const MapArea = () => {
         const { state, dispatch, showToast, canAdmin } = useContext(AppContext);
-        const [pan, setPan] = useState({ x: 0, y: 0, scale: 1 });
         const [creatingPos, setCreatingPos] = useState(null);
         const [selectedPin, setSelectedPin] = useState(null);
+        const [editingPin, setEditingPin] = useState(null);
         const [mode, setMode] = useState(state.user.role === 'teacher' ? 'view' : 'edit');
 
         const [isDrawing, setIsDrawing] = useState(false);
         const [lassoPoints, setLassoPoints] = useState([]);
         const [areaPins, setAreaPins] = useState(null);
 
-        const mapRef = useRef(null);
-        const containerRef = useRef(null);
-        const isDragging = useRef(false);
-        const startPos = useRef({x: 0, y: 0, mouseX: 0, mouseY: 0});
+        // 地図画像を表示領域いっぱいにフィットさせるための実測値
+        const [viewport, setViewport] = useState({ w: 0, h: 0 });
+        const [natural, setNatural] = useState(null);
+
+        const outerRef = useRef(null);      // 地図の表示領域（画面いっぱい）
+        const mapRef = useRef(null);        // 地図 <img>
+        const containerRef = useRef(null);  // transform を掛けるコンテナ
+        // パン/ズームは毎フレームの再レンダリングを避けるため ref + 直接 style 反映で管理する
+        const view = useRef({ x: 0, y: 0, scale: 1 });
+        const pointers = useRef(new Map());
+        const gesture = useRef(null);       // { type: 'drag' | 'pinch', ... }
+        const suppressTap = useRef(false);  // ピンチ後の指離しをタップ扱いにしない
 
         const maps = state.activeUnit?.maps || [];
         const currentMapInfo = maps.find(m => m.id === state.activeMapId) || maps[0];
@@ -3491,6 +3614,94 @@ var qrcode = function() {
           return true;
         });
 
+        // 表示領域の実寸を追跡（端末の回転・リサイズ・パネル開閉に追従）
+        useEffect(() => {
+          const el = outerRef.current;
+          if (!el) return;
+          const update = () => setViewport({ w: el.clientWidth, h: el.clientHeight });
+          update();
+          const ro = new ResizeObserver(update);
+          ro.observe(el);
+          return () => ro.disconnect();
+        }, []);
+
+        const url = currentMapInfo?.url || '';
+        const resolvedUrl = useResolvedImage(url);
+        const displayUrl = !resolvedUrl ? '' :
+          resolvedUrl.startsWith('data:') ? resolvedUrl :
+          resolvedUrl.includes('drive') ? resolvedUrl :
+          `https://drive.google.com/thumbnail?sz=w1500&id=${resolvedUrl.match(/id=([^&]+)/)?.[1]||resolvedUrl}`;
+
+        // 地図の切り替え時は寸法とビューをリセット
+        useEffect(() => {
+          setNatural(null);
+          view.current = { x: 0, y: 0, scale: 1 };
+          applyView();
+        }, [displayUrl]);
+
+        // 表示領域に対して余白最小の contain フィット寸法（scale=1 で画面最大表示になる）
+        const base = useMemo(() => {
+          if (!natural || !viewport.w || !viewport.h) return null;
+          const PAD = 10;
+          const f = Math.min((viewport.w - PAD * 2) / natural.w, (viewport.h - PAD * 2) / natural.h);
+          return { w: Math.max(Math.round(natural.w * f), 50), h: Math.max(Math.round(natural.h * f), 50) };
+        }, [natural, viewport.w, viewport.h]);
+
+        const applyView = () => {
+          if (!containerRef.current) return;
+          const v = view.current;
+          containerRef.current.style.transform = `translate3d(${v.x}px, ${v.y}px, 0) scale(${v.scale})`;
+        };
+
+        const clampView = () => {
+          const v = view.current;
+          v.scale = Math.min(Math.max(v.scale, 1), 6);
+          if (base) {
+            // 地図が画面外へ完全に消えないようにパン量を制限
+            const maxX = (base.w * v.scale + viewport.w) / 2 - 60;
+            const maxY = (base.h * v.scale + viewport.h) / 2 - 60;
+            v.x = Math.min(Math.max(v.x, -maxX), maxX);
+            v.y = Math.min(Math.max(v.y, -maxY), maxY);
+          }
+        };
+
+        // 指定した画面座標を支点にズーム（ピンチ・ホイール・ボタン共通）
+        const zoomAt = (clientX, clientY, factor) => {
+          const el = outerRef.current;
+          if (!el) return;
+          const r = el.getBoundingClientRect();
+          const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+          const v = view.current;
+          const ns = Math.min(Math.max(v.scale * factor, 1), 6);
+          const px = (clientX - cx - v.x) / v.scale;
+          const py = (clientY - cy - v.y) / v.scale;
+          view.current = { scale: ns, x: clientX - cx - ns * px, y: clientY - cy - ns * py };
+          clampView(); applyView();
+        };
+
+        const zoomCenter = (factor) => {
+          const el = outerRef.current;
+          if (!el) return;
+          const r = el.getBoundingClientRect();
+          zoomAt(r.left + r.width / 2, r.top + r.height / 2, factor);
+        };
+
+        const resetView = () => {
+          view.current = { x: 0, y: 0, scale: 1 };
+          if (containerRef.current) containerRef.current.style.transition = 'transform 0.15s ease-out';
+          applyView();
+        };
+
+        // トラックパッド・マウスホイールでのズーム（React の onWheel は preventDefault
+        // できない環境があるため、passive:false のネイティブリスナーで登録する）
+        useEffect(() => {
+          const el = outerRef.current;
+          if (!el) return;
+          const onWheel = (e) => { e.preventDefault(); zoomAt(e.clientX, e.clientY, Math.exp(-e.deltaY * 0.0015)); };
+          el.addEventListener('wheel', onWheel, { passive: false });
+          return () => el.removeEventListener('wheel', onWheel);
+        }, [base, viewport.w, viewport.h]);
+
         const getPos = (e) => {
           if(!mapRef.current) return null;
           const r = mapRef.current.getBoundingClientRect();
@@ -3501,43 +3712,91 @@ var qrcode = function() {
         const onPointerDown = (e) => {
           if(e.target.closest('button') || e.target.closest('.pin-element')) return;
           e.currentTarget.setPointerCapture(e.pointerId);
+          pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+          if (pointers.current.size === 2) {
+            // 2 本指 → ピンチズーム開始（なげなわ・ドラッグは中断）
+            setIsDrawing(false); setLassoPoints([]);
+            const [p1, p2] = [...pointers.current.values()];
+            gesture.current = {
+              type: 'pinch',
+              dist: Math.hypot(p1.x - p2.x, p1.y - p2.y) || 1,
+              scale: view.current.scale, x: view.current.x, y: view.current.y,
+              mid: { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 }
+            };
+            suppressTap.current = true;
+            if (containerRef.current) containerRef.current.style.transition = 'none';
+            return;
+          }
 
           if (mode === 'lasso') {
             setIsDrawing(true);
             const pos = getPos(e);
-            if(pos) setLassoPoints([pos]);
+            setLassoPoints(pos ? [pos] : []);
           } else {
-            isDragging.current = false;
-            startPos.current = { x: pan.x, y: pan.y, mouseX: e.clientX, mouseY: e.clientY };
+            gesture.current = { type: 'drag', x: view.current.x, y: view.current.y, mx: e.clientX, my: e.clientY, moved: false };
             if(containerRef.current) containerRef.current.style.transition = 'none';
           }
         };
 
         const onPointerMove = (e) => {
-          if(!e.currentTarget.hasPointerCapture(e.pointerId)) return;
+          if (pointers.current.has(e.pointerId)) {
+            pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+          }
+          const g = gesture.current;
+
+          if (g && g.type === 'pinch') {
+            if (pointers.current.size < 2) return;
+            const [p1, p2] = [...pointers.current.values()];
+            const el = outerRef.current;
+            if (!el) return;
+            const r = el.getBoundingClientRect();
+            const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+            const dist = Math.hypot(p1.x - p2.x, p1.y - p2.y) || 1;
+            const ns = Math.min(Math.max(g.scale * dist / g.dist, 1), 6);
+            const px = (g.mid.x - cx - g.x) / g.scale;
+            const py = (g.mid.y - cy - g.y) / g.scale;
+            const mid = { x: (p1.x + p2.x) / 2, y: (p1.y + p2.y) / 2 };
+            view.current = { scale: ns, x: mid.x - cx - ns * px, y: mid.y - cy - ns * py };
+            clampView(); applyView();
+            return;
+          }
 
           if (mode === 'lasso') {
-            if (isDrawing) {
+            if (isDrawing && pointers.current.has(e.pointerId)) {
               const pos = getPos(e);
               if(pos) setLassoPoints(prev => [...prev, pos]);
             }
-          } else {
-            const dx = e.clientX - startPos.current.mouseX;
-            const dy = e.clientY - startPos.current.mouseY;
-            if (!isDragging.current && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) isDragging.current = true;
-            if (isDragging.current && containerRef.current) {
-               containerRef.current.style.transform = `translate3d(${startPos.current.x + dx}px, ${startPos.current.y + dy}px, 0) scale(${pan.scale})`;
+            return;
+          }
+
+          if (g && g.type === 'drag') {
+            const dx = e.clientX - g.mx;
+            const dy = e.clientY - g.my;
+            if (!g.moved && (Math.abs(dx) > 5 || Math.abs(dy) > 5)) g.moved = true;
+            if (g.moved) {
+              view.current.x = g.x + dx;
+              view.current.y = g.y + dy;
+              clampView(); applyView();
             }
           }
         };
 
         const onPointerUp = (e) => {
-          e.currentTarget.releasePointerCapture(e.pointerId);
+          try { e.currentTarget.releasePointerCapture(e.pointerId); } catch (err) {}
+          pointers.current.delete(e.pointerId);
+          const g = gesture.current;
+
+          if (g && g.type === 'pinch') {
+            if (pointers.current.size < 2) gesture.current = null;
+            if (pointers.current.size === 0) suppressTap.current = false;
+            return;
+          }
 
           if (mode === 'lasso') {
             if (isDrawing) {
               setIsDrawing(false);
-              if (lassoPoints.length > 5) {
+              if (e.type !== 'pointercancel' && lassoPoints.length > 5) {
                 const containedPins = visiblePins.filter(p => isPointInPolygon({x: p.x, y: p.y}, lassoPoints));
                 if (containedPins.length > 0) {
                   setAreaPins(containedPins);
@@ -3549,86 +3808,84 @@ var qrcode = function() {
             }
           } else {
             if(containerRef.current) containerRef.current.style.transition = 'transform 0.1s ease-out';
-
-            if (isDragging.current) {
-              const dx = e.clientX - startPos.current.mouseX;
-              const dy = e.clientY - startPos.current.mouseY;
-              setPan(p => ({...p, x: startPos.current.x + dx, y: startPos.current.y + dy}));
-            } else {
-              if (mode === 'edit' && state.user.role !== 'teacher') {
-                const pos = getPos(e);
-                if(pos) setCreatingPos(pos);
-              }
+            const wasTap = g && g.type === 'drag' && !g.moved && !suppressTap.current && e.type !== 'pointercancel';
+            gesture.current = null;
+            // ボタンやピンの上で指を離した場合はタップ扱いにしない
+            // （ズームボタン等のタップでピン作成モーダルが誤って開くバグの修正）
+            if (wasTap && !e.target.closest('button') && !e.target.closest('.pin-element')
+                && mode === 'edit' && state.user.role !== 'teacher') {
+              const pos = getPos(e);
+              if(pos) setCreatingPos(pos);
             }
-            isDragging.current = false;
           }
+          if (pointers.current.size === 0) suppressTap.current = false;
         };
 
-        const handleZoom = (amount) => setPan(p=>({...p, scale: Math.max(Math.min(p.scale + amount, 4), 1)}));
-
-        const url = currentMapInfo?.url || '';
-        const resolvedUrl = useResolvedImage(url);
-        const displayUrl = !resolvedUrl ? '' :
-          resolvedUrl.startsWith('data:') ? resolvedUrl :
-          resolvedUrl.includes('drive') ? resolvedUrl :
-          `https://drive.google.com/thumbnail?sz=w1500&id=${resolvedUrl.match(/id=([^&]+)/)?.[1]||resolvedUrl}`;
-
         return (
-          <div className={`flex-1 relative overflow-hidden bg-slate-100 flex items-center justify-center ${mode === 'lasso' ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'}`}
-               onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
+          <div ref={outerRef}
+               className={`map-viewport flex-1 relative overflow-hidden bg-slate-100 flex items-center justify-center ${mode === 'lasso' ? 'cursor-crosshair' : 'cursor-grab active:cursor-grabbing'}`}
+               onPointerDown={onPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
 
-            {maps.length > 0 && (
-              <div className="absolute top-5 left-1/2 -translate-x-1/2 z-overlay flex gap-1.5 p-1.5 bg-white/80 backdrop-blur-lg rounded-full shadow-float border border-white/60 animate-pop-in max-w-[95vw] overflow-x-auto custom-scrollbar">
-                {maps.map(m => (
-                   <button key={m.id} onClick={(e)=>{e.stopPropagation(); dispatch(p=>({...p, activeMapId: m.id}));}}
-                           className={`px-6 py-2.5 rounded-full font-bold text-[13px] whitespace-nowrap transition-all ${state.activeMapId === m.id ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-white hover:text-slate-800'}`}>
-                     {m.name}
-                   </button>
-                ))}
+            {/* センタリング用の -translate-x-1/2 と keyframes アニメーションの transform が
+                打ち消し合わないよう、位置決めの外側とアニメーションの内側を分ける */}
+            {maps.length > 1 && (
+              <div className="absolute top-3 sm:top-5 left-1/2 -translate-x-1/2 z-overlay max-w-[95vw]">
+                <div className="animate-pop-in flex gap-1.5 p-1.5 bg-white/80 backdrop-blur-lg rounded-full shadow-float border border-white/60 overflow-x-auto custom-scrollbar">
+                  {maps.map(m => (
+                     <button key={m.id} onClick={(e)=>{e.stopPropagation(); dispatch(p=>({...p, activeMapId: m.id}));}}
+                             className={`px-4 sm:px-6 py-2 sm:py-2.5 rounded-full font-bold text-[13px] whitespace-nowrap transition-all ${state.activeMapId === m.id ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-white hover:text-slate-800'}`}>
+                       {m.name}
+                     </button>
+                  ))}
+                </div>
               </div>
             )}
 
             {mode === 'lasso' && (
-              <div className="absolute top-24 left-1/2 -translate-x-1/2 z-overlay pointer-events-none animate-pop-in">
-                <span className="bg-brand-500 text-white px-6 py-3 rounded-full font-bold shadow-float animate-pulse flex items-center gap-2 border-[3px] border-white text-sm">
+              <div className="absolute top-16 sm:top-24 left-1/2 -translate-x-1/2 z-overlay pointer-events-none">
+                <span className="animate-pop-in bg-brand-500 text-white px-6 py-3 rounded-full font-bold shadow-float flex items-center gap-2 border-[3px] border-white text-sm whitespace-nowrap">
                   <span>✏️</span>
                   <span><RubyText text="地図" kana="ちず" />をなぞって かこんでね！</span>
                 </span>
               </div>
             )}
 
-            <div className="absolute bottom-8 sm:bottom-10 left-1/2 -translate-x-1/2 z-overlay bg-white/90 backdrop-blur-xl p-2 rounded-full shadow-float border border-white flex gap-1.5 print-hidden">
-              <button onClick={(e)=>{ e.stopPropagation(); setMode('view'); }} className={`px-5 py-3 sm:px-7 sm:py-3.5 rounded-full font-bold text-xs sm:text-sm transition-all flex items-center gap-2 ${mode==='view' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'}`}>
+            <div className="absolute bottom-4 sm:bottom-8 left-1/2 -translate-x-1/2 z-overlay bg-white/90 backdrop-blur-xl p-1.5 sm:p-2 rounded-full shadow-float border border-white flex gap-1 sm:gap-1.5 no-print">
+              <button onClick={(e)=>{ e.stopPropagation(); setMode('view'); }} className={`px-3 py-2.5 sm:px-7 sm:py-3.5 rounded-full font-bold text-xs sm:text-sm transition-all flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${mode==='view' ? 'bg-slate-800 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100 hover:text-slate-800'}`}>
                 <span className="text-base sm:text-lg shrink-0">👀</span>
                 <span className="inline-block mt-1">さわる・<RubyText text="見" kana="み" />る</span>
               </button>
 
-              <button onClick={(e)=>{ e.stopPropagation(); setMode('lasso'); }} className={`px-5 py-3 sm:px-7 sm:py-3.5 rounded-full font-bold text-xs sm:text-sm transition-all flex items-center gap-2 ${mode==='lasso' ? 'bg-brand-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100 hover:text-brand-600'}`}>
+              <button onClick={(e)=>{ e.stopPropagation(); setMode('lasso'); }} className={`px-3 py-2.5 sm:px-7 sm:py-3.5 rounded-full font-bold text-xs sm:text-sm transition-all flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${mode==='lasso' ? 'bg-brand-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100 hover:text-brand-600'}`}>
                 <span className="text-base sm:text-lg shrink-0">✏️</span>
                 <span className="inline-block mt-1">かこんで<RubyText text="見" kana="み" />る</span>
               </button>
 
               {state.user.role !== 'teacher' && (
-                <button onClick={(e)=>{ e.stopPropagation(); setMode('edit'); }} className={`px-5 py-3 sm:px-7 sm:py-3.5 rounded-full font-bold text-xs sm:text-sm transition-all flex items-center gap-2 ${mode==='edit' ? 'bg-accent-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100 hover:text-accent-600'}`}>
+                <button onClick={(e)=>{ e.stopPropagation(); setMode('edit'); }} className={`px-3 py-2.5 sm:px-7 sm:py-3.5 rounded-full font-bold text-xs sm:text-sm transition-all flex items-center gap-1.5 sm:gap-2 whitespace-nowrap ${mode==='edit' ? 'bg-accent-500 text-white shadow-md' : 'text-slate-500 hover:bg-slate-100 hover:text-accent-600'}`}>
                   <span className="text-base sm:text-lg shrink-0">📍</span>
                   <span className="inline-block mt-1">ピンをさす</span>
                 </button>
               )}
             </div>
 
-            <div className="absolute bottom-8 left-6 z-overlay flex flex-col gap-2">
+            <div className="absolute bottom-24 sm:bottom-8 left-3 sm:left-6 z-overlay flex flex-col gap-2">
               <div className="flex flex-col bg-white/90 backdrop-blur-md rounded-full shadow-float border border-white p-1">
-                <button onClick={()=>handleZoom(0.5)} className="w-11 h-11 bg-transparent rounded-full font-bold text-xl text-slate-600 hover:bg-slate-100 transition">+</button>
+                <button onClick={()=>zoomCenter(1.5)} className="w-10 h-10 sm:w-11 sm:h-11 bg-transparent rounded-full font-bold text-xl text-slate-600 hover:bg-slate-100 transition">+</button>
                 <div className="w-full h-px bg-slate-200"></div>
-                <button onClick={()=>handleZoom(-0.5)} className="w-11 h-11 bg-transparent rounded-full font-bold text-xl text-slate-600 hover:bg-slate-100 transition">-</button>
+                <button onClick={()=>zoomCenter(1/1.5)} className="w-10 h-10 sm:w-11 sm:h-11 bg-transparent rounded-full font-bold text-xl text-slate-600 hover:bg-slate-100 transition">-</button>
               </div>
-              <button onClick={()=>setPan({scale:1,x:0,y:0})} className="w-[52px] h-[52px] mt-2 bg-slate-800 text-white rounded-full shadow-float font-bold text-[11px] hover:bg-black transition"><RubyText text="戻" kana="もど" />す</button>
+              <button onClick={resetView} className="w-12 h-12 sm:w-[52px] sm:h-[52px] mt-1 bg-slate-800 text-white rounded-full shadow-float font-bold text-[11px] hover:bg-black transition"><RubyText text="戻" kana="もど" />す</button>
             </div>
 
-            <div ref={containerRef} className="smooth-map-container relative shadow-[0_20px_50px_-12px_rgba(0,0,0,0.15)] rounded-3xl border-[6px] border-white bg-white transition-transform duration-100 ease-out"
-                 style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${pan.scale})`, width: 'fit-content', height: 'fit-content' }}>
+            <div ref={containerRef} className="smooth-map-container relative shadow-[0_20px_50px_-12px_rgba(0,0,0,0.15)] rounded-2xl border-4 border-white bg-white transition-transform duration-100 ease-out"
+                 style={{ transform: `translate3d(${view.current.x}px, ${view.current.y}px, 0) scale(${view.current.scale})`, width: 'fit-content', height: 'fit-content' }}>
 
-              {url && displayUrl ? <img ref={mapRef} src={displayUrl} style={{ maxWidth: '85vw', maxHeight: '75vh', width: 'auto', height: 'auto' }} className="block pointer-events-none rounded-2xl" draggable="false" />
+              {url && displayUrl ? <img ref={mapRef} src={displayUrl}
+                     onLoad={e => setNatural({ w: e.target.naturalWidth || 1, h: e.target.naturalHeight || 1 })}
+                     style={base ? { width: base.w + 'px', height: base.h + 'px', maxWidth: 'none', maxHeight: 'none' }
+                                 : { maxWidth: '88vw', maxHeight: '70vh', width: 'auto', height: 'auto' }}
+                     className="block pointer-events-none rounded-xl" draggable="false" />
                    : url ? <div className="w-[60vw] h-[60vh] max-w-2xl max-h-2xl flex items-center justify-center text-slate-400 font-bold bg-slate-50 rounded-2xl animate-pulse">
                        <span className="text-4xl">🗺️</span>
                      </div>
@@ -3649,15 +3906,17 @@ var qrcode = function() {
                 <div key={pin.pin_id} className="absolute" style={{ left: `${pin.x}%`, top: `${pin.y}%` }}>
                   <PinIcon color={pin.color} onClick={(e) => {
                     e.stopPropagation();
-                    if(mode === 'view' || state.user.role === 'teacher') setSelectedPin(pin);
+                    // なげなわ描画中以外はいつでも詳細を開ける（編集モードでも見られるように）
+                    if(mode !== 'lasso') setSelectedPin(pin);
                   }} />
                 </div>
               ))}
               {creatingPos && <div className="absolute z-50" style={{ left: `${creatingPos.x}%`, top: `${creatingPos.y}%` }}><PinIcon color="#999" isNew /></div>}
             </div>
 
-            {creatingPos && <PinCreateModal pos={creatingPos} onClose={()=>setCreatingPos(null)} />}
-            {selectedPin && <PinDetailModal pin={selectedPin} onClose={() => setSelectedPin(null)} />}
+            {creatingPos && <PinFormModal pos={creatingPos} onClose={()=>setCreatingPos(null)} />}
+            {editingPin && <PinFormModal pin={editingPin} onClose={()=>setEditingPin(null)} />}
+            {selectedPin && <PinDetailModal pin={selectedPin} onClose={() => setSelectedPin(null)} onEdit={(p) => { setSelectedPin(null); setEditingPin(p); }} />}
             {areaPins && <PinListModal pins={areaPins} onClose={() => setAreaPins(null)} onSelectPin={(pin) => { setAreaPins(null); setSelectedPin(pin); }} />}
           </div>
         );
@@ -3669,11 +3928,21 @@ var qrcode = function() {
       const MainApp = ({ ctx, onExit }) => {
         const [state, dispatch] = useState({ user: null, users: [], activeUnit: null, activeMapId: null, pins: [], chats: [], reactions: [], filter: { scope: 'all', color: 'all' }, hasApiKey: false });
         const [sysState, setSysState] = useState({ loading: true, error: null, toast: null });
-        const [uiState, setUiState] = useState({ chatOpen: false, teacherOpen: false });
+        const [uiState, setUiState] = useState({ chatOpen: false, notesOpen: false, teacherOpen: false });
 
         const showToast = useCallback((msg, type='success') => setSysState(p=>({...p, toast: {msg, type}})), []);
         const api = ctx.api;
-        const doAction = ctx.doAction;
+        // 書き込み時刻を記録し、直後の定期同期が楽観的更新を巻き戻さないようにする
+        const lastWriteAt = useRef(0);
+        const doAction = useCallback(async (action, data) => {
+          lastWriteAt.current = Date.now();
+          const res = await ctx.doAction(action, data);
+          lastWriteAt.current = Date.now();
+          // 単元・地図の構成変更は次の定期同期を待たず即時反映する
+          // （特に最初の単元作成時は同期が動いていないため、これがないと再読み込みが必要だった）
+          if (action === 'save_unit' || action === 'add_map') { try { await initLoad(); } catch (e) {} }
+          return res;
+        }, [ctx]);
         // 管理操作（管理パネル・他人の記録の削除）は「T/legacy で教員」の場合のみ。
         // 教員が児童用URLでプレビューしている場合は不可（サーバー側でも拒否される）
         const canAdmin = (state.user?.role === 'teacher') && ctx.mode !== 'student';
@@ -3684,28 +3953,44 @@ var qrcode = function() {
             if(res.status === 'unregistered') {
               setSysState(p=>({...p, loading: false, error: 'unregistered'}));
             } else {
-              dispatch(p => ({
-                ...p, user: res.user, users: res.users, activeUnit: res.activeUnit,
-                activeMapId: res.activeUnit?.maps?.[0]?.id || null,
-                pins: res.pins, chats: res.chats, reactions: res.reactions || [], hasApiKey: !!res.hasApiKey
-              }));
+              dispatch(p => {
+                const mapIds = (res.activeUnit?.maps || []).map(m => m.id);
+                return {
+                  ...p, user: res.user, users: res.users, activeUnit: res.activeUnit,
+                  // 表示中の地図タブは有効な限り維持する（地図追加後などにタブが勝手に戻らないように）
+                  activeMapId: mapIds.indexOf(p.activeMapId) >= 0 ? p.activeMapId : (mapIds[0] || null),
+                  pins: res.pins, chats: res.chats, reactions: res.reactions || [], hasApiKey: !!res.hasApiKey
+                };
+              });
               setSysState(p=>({...p, loading: false}));
             }
           } catch(e) { setSysState(p=>({...p, loading: false, error: e.message || 'エラーが発生しました'})); }
         };
 
         useEffect(() => {
-          initLoad();
+          const unitId = state.activeUnit?.unit_id;
+          if (sysState.loading && !unitId) initLoad();
           const intervalMs = ctx.mode === 'student' ? 15000 : 10000;
           const timer = setInterval(async () => {
-            if(!state.activeUnit) return;
+            if(!unitId) return;
+            if(document.hidden) return; // 非表示タブでは同期しない（サーバー負荷・クォータ対策）
+            const startedAt = Date.now();
             try {
-              const res = await api('SyncData', state.activeUnit.unit_id);
+              const res = await api('SyncData', unitId);
               if(res.success) {
+                // 先生が新しい単元を開始していたら、全データを取り直して自動で切り替える
+                if (res.activeUnit && res.activeUnit.unit_id !== unitId) { initLoad(); return; }
+                // 同期開始後に書き込みがあった場合、記録系の反映は次回に見送る
+                // （保存直前に読まれた古いスナップショットで新しいピンが消えるのを防ぐ）
+                const skipRecords = lastWriteAt.current > startedAt - 500;
                 dispatch(p => {
                    const newUnit = res.activeUnit || p.activeUnit;
-                   const mapId = p.activeMapId || newUnit?.maps?.[0]?.id;
-                   return { ...p, pins: res.pins, chats: res.chats, reactions: res.reactions || [],
+                   const mapIds = (newUnit?.maps || []).map(m => m.id);
+                   const mapId = mapIds.indexOf(p.activeMapId) >= 0 ? p.activeMapId : (mapIds[0] || null);
+                   return { ...p,
+                     pins: skipRecords ? p.pins : res.pins,
+                     chats: skipRecords ? p.chats : res.chats,
+                     reactions: skipRecords ? p.reactions : (res.reactions || []),
                      users: res.users || p.users,
                      activeUnit: newUnit, activeMapId: mapId,
                      hasApiKey: res.hasApiKey !== undefined ? !!res.hasApiKey : p.hasApiKey };
@@ -3718,7 +4003,7 @@ var qrcode = function() {
 
         if (sysState.loading) return <LoadingOverlay />;
         if (sysState.error === 'unregistered') return (
-          <div className="h-screen flex items-center justify-center bg-surface p-4">
+          <div className="app-h flex items-center justify-center bg-surface p-4">
             <div className="bg-white p-12 rounded-[32px] shadow-float text-center max-w-md w-full border-t-[10px] border-brand-500 relative overflow-hidden">
               <div className="absolute top-0 left-0 w-full h-32 bg-brand-50/50"></div>
               <span className="text-7xl block mb-6 relative z-10 drop-shadow-sm">🏫</span>
@@ -3729,13 +4014,13 @@ var qrcode = function() {
             </div>
           </div>
         );
-        if (sysState.error) return <div className="h-screen flex items-center justify-center font-bold text-rose-500 bg-surface p-6 text-center">{sysState.error}</div>;
+        if (sysState.error) return <div className="app-h flex items-center justify-center font-bold text-rose-500 bg-surface p-6 text-center">{sysState.error}</div>;
 
         return (
           <AppContext.Provider value={{ state, dispatch, showToast, api, doAction, ctx, canAdmin }}>
-            <div className="h-screen w-full flex flex-col bg-surface overflow-hidden">
+            <div className="app-h w-full flex flex-col bg-surface overflow-hidden">
 
-              <header className="flex-none h-16 bg-white/90 backdrop-blur-md z-50 px-4 md:px-6 flex justify-between items-center border-b border-slate-200/60 shadow-sm">
+              <header className="flex-none h-14 sm:h-16 bg-white/90 backdrop-blur-md z-50 px-3 md:px-6 flex justify-between items-center border-b border-slate-200/60 shadow-sm no-print">
                 <div className="flex items-center gap-3">
                   {onExit && (
                     <button onClick={onExit} className="bg-slate-100 text-slate-600 px-3 py-2 rounded-full font-bold text-xs hover:bg-slate-200 transition no-print">← ポータル</button>
@@ -3754,16 +4039,21 @@ var qrcode = function() {
                   </div>
                 )}
 
-                <div className="flex items-center gap-4 sm:gap-5">
+                <div className="flex items-center gap-2 sm:gap-4">
                   <div className="text-right hidden md:block">
                     <div className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">{state.user.group_id}</div>
                     <div className="font-extrabold text-slate-700 text-sm">{state.user.name} <span className="text-[10px] font-normal text-slate-500">さん</span></div>
                   </div>
-                  <button onClick={()=>setUiState(p=>({...p, chatOpen: !p.chatOpen}))} className="relative bg-slate-50 p-2.5 rounded-full shadow-sm hover:shadow-md border border-slate-200 transition text-lg">
+                  {state.user.role !== 'teacher' && (
+                    <button onClick={()=>setUiState(p=>({...p, notesOpen: !p.notesOpen, chatOpen: false}))} className={`relative p-2 sm:p-2.5 rounded-full shadow-sm hover:shadow-md border transition text-lg ${uiState.notesOpen ? 'bg-accent-50 border-accent-200' : 'bg-slate-50 border-slate-200'}`} title="わたしのきろく">
+                      📒 <span className="absolute -top-1.5 -right-1.5 bg-brand-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full shadow-sm border-2 border-white">{state.pins.filter(p=>p.email===state.user.email).length}</span>
+                    </button>
+                  )}
+                  <button onClick={()=>setUiState(p=>({...p, chatOpen: !p.chatOpen, notesOpen: false}))} className={`relative p-2 sm:p-2.5 rounded-full shadow-sm hover:shadow-md border transition text-lg ${uiState.chatOpen ? 'bg-brand-50 border-brand-200' : 'bg-slate-50 border-slate-200'}`} title="みんなのひろば">
                     💬 <span className="absolute -top-1.5 -right-1.5 bg-accent-500 text-white text-[10px] font-bold w-5 h-5 flex items-center justify-center rounded-full shadow-sm border-2 border-white">{state.chats.length}</span>
                   </button>
                   {canAdmin && (
-                    <button onClick={()=>setUiState(p=>({...p, teacherOpen: true}))} className="bg-slate-800 text-white px-5 py-2.5 rounded-full font-bold text-xs shadow-md hover:bg-black transition">管理パネル</button>
+                    <button onClick={()=>setUiState(p=>({...p, teacherOpen: true}))} className="bg-slate-800 text-white px-3 sm:px-5 py-2 sm:py-2.5 rounded-full font-bold text-xs shadow-md hover:bg-black transition whitespace-nowrap">管理パネル</button>
                   )}
                 </div>
               </header>
@@ -3771,9 +4061,11 @@ var qrcode = function() {
               <div className="flex-1 relative flex overflow-hidden">
                 <MapArea />
                 <ChatPanel isOpen={uiState.chatOpen} onClose={()=>setUiState(p=>({...p, chatOpen: false}))} />
+                <MyNotesPanel isOpen={uiState.notesOpen} onClose={()=>setUiState(p=>({...p, notesOpen: false}))} />
               </div>
 
-              <footer className="flex-none h-10 flex justify-center items-center bg-white border-t border-slate-200 text-[10px] sm:text-xs text-slate-400 font-bold z-50 tracking-wider">
+              {/* モバイルでは地図領域を最大化するためフッターを表示しない */}
+              <footer className="flex-none h-8 hidden md:flex justify-center items-center bg-white border-t border-slate-200 text-[10px] sm:text-xs text-slate-400 font-bold z-50 tracking-wider no-print">
                 © 2026 みっけ！ <a href="https://note.com/cute_borage86" target="_blank" className="ml-1.5 text-slate-500 hover:text-brand-500 transition">GIGA山</a>
               </footer>
 
@@ -4038,7 +4330,7 @@ var qrcode = function() {
 
         if (screen.type === 'loading') return <LoadingOverlay label={<span>ポータルをひらいています...</span>} />;
         if (screen.type === 'error') return (
-          <div className="h-screen flex items-center justify-center bg-surface p-6">
+          <div className="app-h flex items-center justify-center bg-surface p-6">
             <div className="bg-white p-10 rounded-[32px] shadow-float text-center max-w-md w-full border-t-[10px] border-rose-400">
               <span className="text-6xl block mb-4">⚠️</span>
               <p className="font-bold text-slate-700 leading-relaxed">{screen.message}</p>
@@ -4053,9 +4345,11 @@ var qrcode = function() {
         }
 
         const classes = (portal && portal.classes) || [];
+        // QR 生成は軽くない処理なので 1 画面につき 1 回だけ行う
+        const createdQr = screen.type === 'created' ? makeQrDataUrl(screen.data.studentUrl) : null;
 
         return (
-          <div className="h-screen w-full flex flex-col bg-surface overflow-hidden">
+          <div className="app-h w-full flex flex-col bg-surface overflow-hidden">
             <header className="flex-none h-16 bg-white/90 backdrop-blur-md z-50 px-4 md:px-6 flex justify-between items-center border-b border-slate-200/60 shadow-sm">
               <div className="flex items-center gap-3">
                 <span className="text-2xl bg-brand-50 p-1.5 rounded-xl shadow-inner-soft border border-brand-100">🗺️</span>
@@ -4080,8 +4374,8 @@ var qrcode = function() {
                     <span className="text-6xl block mb-4">🎉</span>
                     <h2 className="text-2xl font-extrabold text-slate-800 mb-2">クラスができました！</h2>
                     <p className="text-sm text-slate-500 mb-6 leading-relaxed">スプレッドシートは<strong>あなたのドライブ</strong>に作成され、アプリからの読み書きに必要な共有も自動で完了しています。<br/>あとは下の URL / QR を児童に配るだけです。</p>
-                    {makeQrDataUrl(screen.data.studentUrl) && (
-                      <img src={makeQrDataUrl(screen.data.studentUrl)} alt="児童用URLのQRコード" className="w-48 h-48 mx-auto mb-4 border-4 border-slate-100 rounded-2xl [image-rendering:pixelated]" />
+                    {createdQr && (
+                      <img src={createdQr} alt="児童用URLのQRコード" className="w-48 h-48 mx-auto mb-4 border-4 border-slate-100 rounded-2xl [image-rendering:pixelated]" />
                     )}
                     <div className="bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-mono text-sm text-slate-700 break-all mb-4">{screen.data.studentUrl}</div>
                     <div className="flex gap-3 justify-center flex-wrap">
@@ -4098,7 +4392,7 @@ var qrcode = function() {
                       <h2 className="text-2xl font-extrabold text-slate-800 mb-3">ようこそ、先生！</h2>
                       <p className="text-sm text-slate-500 mb-8 leading-relaxed max-w-md mx-auto">最初のクラスを作りましょう。クラスを作ると、<strong>あなたのドライブ</strong>に記録用のスプレッドシートが自動作成され、児童用の URL と QR コードが発行されます。<br/>面倒な共有設定は一切不要です。</p>
                       <div className="flex gap-3 max-w-md mx-auto">
-                        <input type="text" value={newClassName} onChange={e=>setNewClassName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleCreate()} placeholder="クラス名（例：3年1組）" className="flex-1 px-5 py-4 border border-slate-200 rounded-xl bg-slate-50 font-bold focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition" />
+                        <input type="text" value={newClassName} onChange={e=>setNewClassName(e.target.value)} onKeyDown={onEnterKey(handleCreate)} placeholder="クラス名（例：3年1組）" className="flex-1 px-5 py-4 border border-slate-200 rounded-xl bg-slate-50 font-bold focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition" />
                         <button onClick={handleCreate} disabled={creating} className="bg-brand-500 text-white px-6 py-4 rounded-xl font-bold hover:bg-brand-600 transition shadow-md whitespace-nowrap">{creating ? '作成中...' : 'クラスを作成'}</button>
                       </div>
                     </div>
@@ -4126,7 +4420,7 @@ var qrcode = function() {
                       <div className="bg-white rounded-3xl border border-slate-200 shadow-soft p-6">
                         <h3 className="font-extrabold text-slate-800 mb-4 flex items-center gap-2"><span>➕</span> 新しいクラスを作る</h3>
                         <div className="flex gap-3 flex-wrap">
-                          <input type="text" value={newClassName} onChange={e=>setNewClassName(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleCreate()} placeholder="クラス名（例：3年2組）" className="flex-1 min-w-[200px] px-5 py-3.5 border border-slate-200 rounded-xl bg-slate-50 font-bold focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition" />
+                          <input type="text" value={newClassName} onChange={e=>setNewClassName(e.target.value)} onKeyDown={onEnterKey(handleCreate)} placeholder="クラス名（例：3年2組）" className="flex-1 min-w-[200px] px-5 py-3.5 border border-slate-200 rounded-xl bg-slate-50 font-bold focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition" />
                           <button onClick={handleCreate} disabled={creating} className="bg-brand-500 text-white px-6 py-3.5 rounded-xl font-bold hover:bg-brand-600 transition shadow-md">{creating ? '作成中...' : '作成'}</button>
                         </div>
                       </div>
@@ -4214,7 +4508,7 @@ var qrcode = function() {
         }
 
         const Card = ({ children, color = 'brand-500' }) => (
-          <div className="h-screen flex items-center justify-center bg-surface p-4">
+          <div className="app-h flex items-center justify-center bg-surface p-4">
             <div className={`bg-white p-10 sm:p-12 rounded-[32px] shadow-float text-center max-w-md w-full border-t-[10px] border-${color} relative overflow-hidden animate-pop-in`}>
               {children}
             </div>
@@ -4285,7 +4579,7 @@ var qrcode = function() {
       // Landing（exec URL 直叩き時の誘導）
       // ==========================================
       const Landing = () => (
-        <div className="h-screen flex items-center justify-center bg-surface p-4">
+        <div className="app-h flex items-center justify-center bg-surface p-4">
           <div className="bg-white p-10 sm:p-12 rounded-[32px] shadow-float text-center max-w-md w-full border-t-[10px] border-brand-500 animate-pop-in">
             <span className="text-7xl block mb-6">🗺️</span>
             <h1 className="text-2xl font-extrabold text-slate-800 mb-3">みっけ！</h1>

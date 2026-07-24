@@ -73,7 +73,10 @@ function lgSyncData(unitId) {
   try {
     const ss = getSs_(null);
     const units = getTableData_(ss, TABLES.UNITS);
-    const activeUnit = formatUnit_(units.filter(function (u) { return u.unit_id === unitId; })[0] || null);
+    // 現在アクティブな単元を優先して返す（単元切替の自動追従用。StudentApi と同じ挙動）
+    const activeUnit = formatUnit_(
+      units.filter(function (u) { return u.is_active === true; })[0] ||
+      units.filter(function (u) { return u.unit_id === unitId; })[0] || null);
     const data = coreCollectUnitData_(ss, unitId);
     return jsonOk_({
       pins: data.pins, chats: data.chats, reactions: data.reactions,
@@ -96,6 +99,8 @@ function lgExecuteAction(payloadJson) {
     const p = JSON.parse(payloadJson);
 
     if (p.action === 'save_pin') return jsonOk_(coreSavePin_(ss, email, p));
+    // 自分のピンのみ更新可（coreUpdateOwnPin_ が行所有者チェックを行う）
+    if (p.action === 'update_pin') return jsonOk_(coreUpdateOwnPin_(ss, email, p.pin_id, p));
     if (p.action === 'save_chat') return jsonOk_(coreSaveChat_(ss, email, p));
     if (p.action === 'toggle_reaction') return jsonOk_(coreToggleReaction_(ss, email, p));
     if (p.action === 'delete_pin' || p.action === 'delete_chat') {
