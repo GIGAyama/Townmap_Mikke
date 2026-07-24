@@ -51,6 +51,31 @@ const PROP_KEYS = {
   TEMPLATE: 'sp_dbTemplateId'
 };
 
+/**
+ * 承認トリガー（GAS エディタから手動で実行する）。
+ *
+ * デプロイ S は「自分（アプリアカウント）として実行」のため、実行時の権限は
+ * 「アプリアカウントがこのスクリプトに与えた承認」で決まる。承認は実行時ではなく
+ * 事前に一度だけ行うもので、appsscript.json の oauthScopes を変更した場合や
+ * 初回承認を飛ばした場合、児童側で
+ * 「UrlFetchApp.fetch を呼び出す権限がありません」等のエラーになる。
+ *
+ * 対処: アプリアカウントで GAS エディタを開き、この関数を選択して「実行」→
+ * 表示される承認画面ですべて許可する。再デプロイは不要（既存デプロイに即反映）。
+ * 戻り値で 3 スコープが実際に機能しているかを確認できる。
+ */
+function authorizeApp() {
+  const results = [];
+  results.push('実行者: ' + Session.getEffectiveUser().getEmail());  // userinfo.email
+  const res = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=check',
+    { muteHttpExceptions: true });                                    // script.external_request
+  results.push('UrlFetch(トークン検証): OK (HTTP ' + res.getResponseCode() + ' は正常です)');
+  results.push('spreadsheets スコープ: ' + (ScriptApp.getOAuthToken() ? '承認済み' : '不明'));
+  const summary = results.join(' / ');
+  Logger.log(summary);
+  return summary;
+}
+
 function getSetting_(key, required) {
   const v = PropertiesService.getScriptProperties().getProperty(key);
   if (!v && required) {
