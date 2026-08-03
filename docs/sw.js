@@ -13,6 +13,17 @@
  *
  * Service Worker は localStorage を一切操作しない。
  */
+/* 【重要】キャッシュの掃除は、かならず自アプリのぶんだけに限る。
+ *
+ * gigayama.github.io は数十本の学習アプリが同じドメインを共有している。
+ * ブラウザのキャッシュはドメイン単位なので、caches.keys() はこのアプリのものだけでなく、
+ * 同居する全アプリのキャッシュを返す。
+ *
+ * これまでは「CACHE_NAME 以外ぜんぶ」を消していたため、みっけ！を開いて
+ * 新しい Service Worker が有効になった瞬間、その端末に入っていた
+ * 児童むけアプリ（Qalc・KANJI_Town など）のオフライン用データまで消えていた。
+ * 児童がオフラインで開いても起動せず、しかも原因がそのアプリ側に見えないため
+ * 「たまに開かなくなる」という再現しにくい不具合になっていた。 */
 const CACHE_PREFIX = 'mikke-shell-';
 const APP_VERSION = 'v6'; // ← リリースごとに必ず上げる
 const CACHE_NAME = CACHE_PREFIX + APP_VERSION;
