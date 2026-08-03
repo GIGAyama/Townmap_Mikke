@@ -204,3 +204,154 @@ GIGA Standard v4 §3-3 が名指しで禁じている事象で、**P1 の最優�
 最優先の `sw.js` はここに含まれ、GAS 本番との差分リスクを一切負わずに、
 フリート全体への被害を止められる。`.gs` / `App.html` の修正は、
 本番との差分を確認できてから別 PR にするのが安全。
+
+---
+---
+
+# 第1次対応の結果（2026-08-03）
+
+**`docs/` 配下のみ**を対象に、P0 と P1 の主要項目を実施した。
+`.gs` / `App.html` には一切触れていない（本番との差分が確認できないため）。
+
+## 再判定
+
+| # | 項目 | 前 | 後 | 根拠 |
+|---|---|:--:|:--:|---|
+| A1 | LICENSE | ❌ | ✅ | MIT / Copyright (c) 2026 GIGAyama |
+| A2 | .gitignore | ❌ | ✅ | 新規作成。`.clasp.json` / `.clasprc.json` / `_live/` / `.env` を除外 |
+| A3 | dependabot.yml | ❌ | ✅ | github-actions のみ・月1回（npm 依存なし） |
+| D1 | viewport-fit=cover | ⚠️ | ✅ | `diag.html` に欠けていたものを追加。3ページすべてに適用 |
+| D2 | 100dvh | ⚠️ | ✅ | `docs/index.html` に `100dvh` とフォールバックを追加 |
+| D3 | safe-area-inset | ❌ | ✅ | 上下左右＋更新帯に適用 |
+| D4 | clamp() | ❌ | ✅ | `--fs-body` / `--fs-note` / `--fs-title`、行間 1.8 |
+| D8 | コントラスト | ⚠️ | ✅ | 主ボタン `#0ea5e9`→`#0369a1`（白文字で **2.77 → 5.43**）、本文 `#64748b`→`#475569`（**4.76 → 8.6**） |
+| D9 | タップ44px | ⚠️ | ✅ | `.btn { min-height: 48px }` + `touch-action: manipulation` |
+| D10 | prefers-reduced-motion | ❌ | ✅ | 追加。`forced-colors` も対応 |
+| E1 | manifest の識別子 | ❌ | ✅ | `id` / `scope` / `start_url` を `/Townmap_Mikke/` に |
+| E2 | アイコン4種 | ❌ | ✅ | 192/512 の any と maskable、apple-touch-icon を SVG から生成（計 13KB） |
+| E3 | beforeinstallprompt | ❌ | ✅ | `<head>` 最上部の `pwa-install-hook.js` |
+| E4 | インストールボタン | ❌ | ✅ | ログイン画面に設置 |
+| E5 | **sw.js の掃除範囲** | ❌ | ✅ | `CACHE_PREFIX` 前方一致のみ削除 |
+| E7 | 更新通知 | ❌ | ✅ | `skipWaiting` をやめ「あたらしい バージョンが あります」 |
+| E8 | offline.html | ❌ | ✅ | アプリと同じ配色・外部読み込みゼロ |
+
+### `manifest` の `id` について（停止条件の解消）
+
+監査時点では「`id` を明示すると既存インストールが別アプリ扱いになりうる」として
+停止条件に挙げた。改めて仕様を確認したところ、**同一性は変わらない**と判断できた。
+
+- `id` を省略したときの既定値は `start_url`
+- 元の `start_url: "."` は `https://gigayama.github.io/Townmap_Mikke/` に解決される
+- 明示した `"id": "/Townmap_Mikke/"` も同じ URL に解決される
+
+したがって計算される識別子は変更前後で一致し、インストール済みの端末で
+別アプリにはならない。この理由により実施した。
+
+## 検証結果（Chromium 実機・同一オリジンに2アプリを並べて実施）
+
+### E5 の修正効果（修正前後の比較）
+
+同一オリジンに他アプリのキャッシュを2つ置いた状態で Service Worker を有効化した。
+
+| | 有効化後に残っているキャッシュ | 他アプリの資産 |
+|---|---|---|
+| **修正前**（`mikke-shell-v5`） | `mikke-shell-v5` **のみ** | `keisan-card` ❌ / `digital-textbook` ❌ **どちらも消滅** |
+| **修正後**（`mikke-shell-v6`） | `keisan-card-static-1.0.0` / `digital-textbook-vendor-v1` / `workbox-precache-v2-…/Digital_textbook/` / `mikke-shell-v6` の**4つが共存** | 両方とも ✅ **無傷** |
+
+### その他
+
+| 確認したこと | 結果 |
+|---|---|
+| manifest の `id` / `scope` / `start_url` | すべて `/Townmap_Mikke/` |
+| アイコン5種の配信 | すべて 200 |
+| maskable のセーフゾーン外の非下地画素 | **0.00%** |
+| インストールの合図フック | `<head>` 最上部で作動 |
+| 320px / 375px 横スクロール | なし |
+| `offline.html` | 単体で表示でき、横スクロールなし |
+| コンソールのエラー | 0件 |
+
+> **検証の限界**：この環境から `script.google.com` / `accounts.google.com` へは
+> 到達できないため、**GAS 本体の起動・GIS サインイン・iframe 内のアプリ動作は
+> 確認できていない**。上記は「シェルが正しく組み上がるところまで」の検証である。
+> 実機で一度、教員ポータルと児童の入り口の両方を開いて確認していただきたい。
+
+---
+
+## CSP は今回入れていない（手順書として添付）
+
+GIGA Standard v4 は「**確認できない環境なら投入せず、手順書として PR に添える**」と
+定めている。このシェルの要となる経路（GAS の iframe 読み込み・GIS サインイン）は
+この環境から到達できず、`frame-src` / `connect-src` の過不足を実地で確かめられない。
+誤った CSP は**全児童のログインを止める**ため、投入は見送った。
+
+### 投入手順
+
+1. **棚卸し**：`docs/index.html` のインライン `<script>`（約 300 行）を
+   `docs/app-shell.js` へ切り出す。`script-src 'self'` で締めるために必要。
+   （`pwa-install-hook.js` は既に外部ファイル化済み）
+2. 下のブロックを `docs/index.html` の `<head>` 最上部付近へ入れる。
+
+```html
+<meta http-equiv="Content-Security-Policy" content="
+    default-src 'self';
+    script-src 'self' https://accounts.google.com;
+    style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+    font-src 'self' https://fonts.gstatic.com data:;
+    img-src 'self' data: blob: https://lh3.googleusercontent.com;
+    connect-src 'self' https://script.google.com https://accounts.google.com;
+    frame-src https://script.google.com https://*.googleusercontent.com https://accounts.google.com;
+    worker-src 'self';
+    manifest-src 'self';
+    object-src 'none';
+    base-uri 'self';
+    form-action 'self';
+  " />
+```
+
+3. `npx serve docs -p 8000` で起動し、**次をすべて実施**してコンソールに
+   `Refused to` が **0件**であることを確認する。
+   - 教員ポータル（`/`）を開いてサインインできる
+   - 児童の入り口（`/?c=クラスコード`）を開いてサインインできる
+   - iframe 内のアプリが起動し、地図の読み書きができる
+   - `diag.html` の接続診断が通る
+4. 1件でも `Refused to` が出たら、**該当ディレクティブだけを緩める**。
+   ワイルドカードで潰さない。
+
+> `frame-src` に `*.googleusercontent.com` が必要なのは、GAS のウェブアプリが
+> 実際の中身をこのドメインの入れ子 iframe で配信するため。ここを落とすと
+> 画面が真っ白になる（`README.md` のトラブルシューティング②と同じ症状）。
+
+---
+
+## 残る積み残し
+
+### 1. `.gs` / `App.html`（GAS 本体）
+
+`.clasp.json` が無く `scriptId` も不明なため、**本番との差分を確認できない**。
+以下は未対応：
+
+- `App.html` の Canvas に DPR 補正が無い（`App.html:2594`）
+- `App.html` の `user-scalable=no`（読む要素が含まれるかの判断が必要）
+- `App.html` が `unpkg.com` / `cdn.tailwindcss.com` を SRI 無しで実行時ロード
+- 提示モードが無い（一斉授業で地図を映す用途があるなら必要）
+- `App.html` 4,654行 / 211KB の分割
+
+**着手には `scriptId` の共有が必要。** その上で `clasp clone` して差分を確認し、
+差分があれば本番側を正として扱う。反映は人間の操作とし、
+**既存デプロイの URL は変えない**（新規デプロイを作ると配布済み QR が切れる）。
+
+### 2. OAuth スコープ `spreadsheets`
+
+禁止スコープではないが全スプレッドシートに及ぶ。教員所有のシートを開く設計上、
+`spreadsheets.currentonly` には落とせない可能性が高い。**報告に留める。**
+
+### 3. MANUAL.md（先生向け）
+
+`README.md` は運営者向けとして非常に充実しているが、
+専門用語ゼロの先生向けマニュアルが無い。iOS の「ホーム画面に追加」手順を含めたい。
+
+### 4. 品質ゲート
+
+`Digital_textbook` に置いた `scripts/lib/giga-v4-checks.mjs` を移植したいが、
+このリポジトリは npm を使っていないため、実行環境（Node の入れ方・CI）から
+決める必要がある。**正本の置き場所とあわせて判断したい。**
