@@ -1,23 +1,50 @@
 /**
  * みっけ！ シェル用 Service Worker（最小構成）
+ *
+ * 【最重要】activate では自アプリ以外のキャッシュを削除しない。
+ *   gigayama.github.io は数十個のアプリが同一オリジンを共有しているため、
+ *   CACHE_PREFIX で始まるキャッシュだけを掃除する。
+ *   以前はここで caches.keys() の結果を全部消していた。そのため児童が
+ *   「みっけ！」を開くたびに、同じ端末に入っている他の GIGA アプリの
+ *   キャッシュまで巻き添えで消え、それらがオフラインで起動しなくなっていた。
+ *
  * キャッシュするのはシェル資産のみ。
  * GAS（script.google.com / googleusercontent.com）と gsi/client は絶対にキャッシュしない。
+ *
+ * Service Worker は localStorage を一切操作しない。
  */
-const CACHE_NAME = 'mikke-shell-v5';
-const SHELL_ASSETS = ['./', './index.html', './config.js', './manifest.webmanifest', './icon.svg'];
+const CACHE_PREFIX = 'mikke-shell-';
+const APP_VERSION = 'v6'; // ← リリースごとに必ず上げる
+const CACHE_NAME = CACHE_PREFIX + APP_VERSION;
+
+const SHELL_ASSETS = [
+  './', './index.html', './config.js', './manifest.webmanifest',
+  './icon.svg', './icon-192.png', './icon-512.png',
+  './icon-maskable-192.png', './icon-maskable-512.png',
+  './apple-touch-icon.png', './offline.html',
+];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_ASSETS)).then(() => self.skipWaiting())
-  );
+  event.waitUntil((async () => {
+    const cache = await caches.open(CACHE_NAME);
+    // 1本でも失敗すると addAll 全体が落ちる。個別に入れて、取れなかったものは
+    // 飛ばす（校内Wi-Fiが混んでいても導入できるようにするため）。
+    await Promise.all(SHELL_ASSETS.map((u) =>
+      cache.add(new Request(u, { cache: 'reload' }))
+        .catch((err) => console.warn('[sw] precache skipped', u, err))));
+    // ここでは skipWaiting しない。児童が操作している最中に突然切り替わらないよう、
+    // 画面側で「さいしんに する」を押してもらってから切り替える（下の message）。
+  })());
 });
 
 self.addEventListener('activate', (event) => {
-  event.waitUntil(
-    caches.keys().then((keys) =>
-      Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k)))
-    ).then(() => self.clients.claim())
-  );
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys
+      .filter((k) => k.startsWith(CACHE_PREFIX) && k !== CACHE_NAME)
+      .map((k) => caches.delete(k)));   // ← 自アプリ分だけ削除
+    await self.clients.claim();
+  })());
 });
 
 self.addEventListener('fetch', (event) => {
@@ -26,6 +53,21 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
   // 診断ページは常に最新をネットワークから取得する（キャッシュ対象外）
   if (url.pathname.endsWith('/diag.html')) return;
+
+  // 画面遷移は network-first。更新をすぐ届け、圏外ならキャッシュ済みの
+  // シェルを返し、それも無ければ offline.html を出す（「壊れた」と思わせない）。
+  if (event.request.mode === 'navigate') {
+    event.respondWith((async () => {
+      try {
+        return await fetch(event.request);
+      } catch (e) {
+        return (await caches.match('./index.html'))
+          || (await caches.match('./offline.html'))
+          || Response.error();
+      }
+    })());
+    return;
+  }
 
   event.respondWith(
     caches.match(event.request, { ignoreSearch: url.pathname.endsWith('/') || url.pathname.endsWith('index.html') }).then((hit) => {
@@ -40,4 +82,9 @@ self.addEventListener('fetch', (event) => {
       return hit || fetchAndUpdate;
     })
   );
+});
+
+// 画面側で「さいしんに する」が押されたときだけ切り替える
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') self.skipWaiting();
 });
