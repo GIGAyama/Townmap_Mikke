@@ -2,60 +2,162 @@
 <html lang="ja">
 <head>
   <meta charset="UTF-8" />
+
+  <!-- インストールの合図を「いちばん先に」受け取る。
+       Chrome は条件が揃うと即座に beforeinstallprompt を出すため、
+       この下の読み込みより後だと合図を取りこぼし、通信が遅い端末で
+       「アプリを入れる」ボタンが出なくなる。 -->
+  <script src="pwa-install-hook.js"></script>
+
+  <!-- viewport-fit=cover … ノッチやホームバーの領域まで背景を伸ばすために必須 -->
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>みっけ！</title>
   <meta name="theme-color" content="#0ea5e9" />
+  <!-- 児童用アプリなので配色は固定する（端末のダークモードで反転すると混乱する） -->
+  <meta name="color-scheme" content="light" />
   <link rel="manifest" href="manifest.webmanifest" />
   <link rel="icon" href="icon.svg" type="image/svg+xml" />
-  <link rel="apple-touch-icon" href="icon.svg" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+  <link rel="icon" type="image/png" sizes="512x512" href="icon-512.png" />
+  <!-- iOS は SVG も maskable も扱えないので、専用の PNG を渡す。
+       これが無いとホーム画面に追加したときアイコンが出ない。 -->
+  <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <meta name="apple-mobile-web-app-title" content="みっけ！" />
   <link href="https://fonts.googleapis.com/css2?family=M+PLUS+Rounded+1c:wght@400;700;800&display=swap" rel="stylesheet">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    html, body { height: 100%; overflow: hidden; }
+    :root {
+      /* ノッチ・ホームバー・丸角のぶんの余白 */
+      --safe-t: env(safe-area-inset-top, 0px);
+      --safe-b: env(safe-area-inset-bottom, 0px);
+      --safe-l: env(safe-area-inset-left, 0px);
+      --safe-r: env(safe-area-inset-right, 0px);
+
+      /* 画面幅に応じて伸び縮みする文字サイズ。
+         320px のスマホから 4K の電子黒板まで1本の式でまかなう。 */
+      --fs-body: clamp(14px, 1.2vw + 9px, 17px);
+      --fs-note: clamp(13px, 1vw + 8px, 15px);
+      --fs-title: clamp(22px, 3vw + 12px, 34px);
+
+      /* 面に置く色と、文字に使う色を分ける。明るい水色をそのまま
+         白文字の下地にすると、Chromebook の安価な液晶では読めない。 */
+      --sky: #0ea5e9;      /* 面・帯・アクセント用 */
+      --sky-d: #0369a1;    /* 白文字を載せる面／濃い文字用（白背景で 5.4:1） */
+      --ink: #1e293b;
+      --muted: #475569;    /* 白背景で 8.6:1。旧 #64748b は 12px では厳しかった */
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    html {
+      -webkit-text-size-adjust: 100%; text-size-adjust: 100%;
+      height: 100%;
+    }
     body {
-      font-family: 'M PLUS Rounded 1c', sans-serif;
+      /* 100vh はモバイルのアドレスバーぶんだけはみ出す。dvh を使う。 */
+      min-height: 100vh;
+      min-height: 100dvh;
+      height: 100dvh;
+      overflow: hidden;
+      font-family: 'M PLUS Rounded 1c', 'Hiragino Maru Gothic ProN', 'BIZ UDGothic',
+        'Hiragino Kaku Gothic ProN', 'Noto Sans JP', system-ui, sans-serif;
       background: #f8fafc; color: #334155;
+      font-size: var(--fs-body); line-height: 1.8;
       display: flex; flex-direction: column;
+      /* 横向きのときにノッチ側で UI が欠けるのを防ぐ */
+      padding-left: var(--safe-l); padding-right: var(--safe-r);
     }
     #app-frame {
       border: 0; width: 100%; height: 100%; flex: 1; display: none; background: #f8fafc;
     }
     .gate {
-      flex: 1; display: flex; align-items: center; justify-content: center; padding: 16px;
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      padding: calc(16px + var(--safe-t)) 16px calc(16px + var(--safe-b));
+      overflow: auto; overscroll-behavior: contain;
     }
     .card {
-      background: #fff; border-radius: 32px; padding: 40px 32px; text-align: center;
-      max-width: 420px; width: 100%;
+      background: #fff; border-radius: 32px;
+      padding: clamp(28px, 6vw, 40px) clamp(20px, 5vw, 32px);
+      text-align: center; max-width: 420px; width: 100%;
       box-shadow: 0 10px 40px -10px rgba(0,0,0,.12);
-      border-top: 10px solid #0ea5e9;
+      border-top: 10px solid var(--sky);
     }
-    .card .emoji { font-size: 64px; display: block; margin-bottom: 16px; }
-    .card h1 { font-size: 24px; font-weight: 800; color: #1e293b; margin-bottom: 8px; letter-spacing: .02em; }
-    .card p { font-size: 13px; color: #64748b; line-height: 1.8; margin-bottom: 20px; }
+    .card .emoji { font-size: clamp(48px, 12vw, 64px); display: block; margin-bottom: 16px; }
+    .card h1 { font-size: var(--fs-title); font-weight: 800; color: var(--ink); margin-bottom: 8px; letter-spacing: .02em; }
+    .card p { font-size: var(--fs-note); color: var(--muted); line-height: 1.8; margin-bottom: 20px; }
     .card .note {
       background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 14px;
-      padding: 14px; font-size: 12px; color: #64748b; text-align: left; line-height: 1.8;
+      padding: 14px; font-size: var(--fs-note); color: var(--muted); text-align: left; line-height: 1.8;
     }
     #gsi-button { display: flex; justify-content: center; margin-bottom: 16px; min-height: 44px; }
     .btn {
-      display: inline-block; background: #0ea5e9; color: #fff; border: 0; cursor: pointer;
-      font-family: inherit; font-weight: 700; font-size: 15px;
-      padding: 14px 28px; border-radius: 14px;
-      box-shadow: 0 10px 40px -10px rgba(14,165,233,.5);
+      display: inline-block; background: var(--sky-d); color: #fff; border: 0; cursor: pointer;
+      font-family: inherit; font-weight: 700; font-size: var(--fs-body);
+      /* 低学年の指でも押せる大きさを下限にする */
+      min-height: 48px; min-width: 44px;
+      padding: 12px 28px; border-radius: 14px;
+      box-shadow: 0 10px 40px -10px rgba(3,105,161,.5);
       text-decoration: none; transition: background .2s;
+      /* ダブルタップズームの300ms遅延を消す */
+      touch-action: manipulation;
     }
-    .btn:hover { background: #0284c7; }
-    .btn.secondary { background: #1e293b; box-shadow: none; }
+    .btn:hover { background: #075985; }
+    .btn.secondary { background: var(--ink); box-shadow: none; }
+    .btn:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+    #install-app {
+      background: #fff; color: var(--sky-d); border: 2px solid #bae6fd;
+      box-shadow: none; margin-top: 12px;
+    }
+    #install-app:hover { background: #f0f9ff; }
     .spinner {
       width: 44px; height: 44px; margin: 0 auto 16px;
-      border: 4px solid #e0f2fe; border-top-color: #0ea5e9; border-radius: 50%;
+      border: 4px solid #e0f2fe; border-top-color: var(--sky); border-radius: 50%;
       animation: spin .8s linear infinite;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     .hidden { display: none !important; }
     #overlay {
       position: fixed; inset: 0; background: rgba(15,23,42,.55); backdrop-filter: blur(4px);
-      display: flex; align-items: center; justify-content: center; padding: 16px; z-index: 50;
+      display: flex; align-items: center; justify-content: center;
+      padding: calc(16px + var(--safe-t)) 16px calc(16px + var(--safe-b));
+      z-index: 50;
+    }
+
+    /* 更新のお知らせ帯（スクリプトが差し込む）。
+       下端に固定するので、ホームバーのぶんを足す。 */
+    #sw-update-banner {
+      position: fixed; left: 50%; transform: translateX(-50%);
+      bottom: calc(16px + var(--safe-b)); z-index: 9999;
+      display: flex; align-items: center; justify-content: center;
+      gap: 12px; flex-wrap: wrap;
+      max-width: calc(100vw - 32px);
+      padding: 12px 16px;
+      background: var(--ink); color: #fff;
+      border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.3);
+      font-weight: 700; font-size: var(--fs-note); line-height: 1.5;
+    }
+    #sw-update-banner button {
+      min-height: 44px; padding: 0 16px; border: 0; border-radius: 12px;
+      font: inherit; cursor: pointer; touch-action: manipulation;
+    }
+    #sw-update-apply { background: #38bdf8; color: var(--ink); }
+    #sw-update-close { background: transparent; color: #cbd5e1; }
+    #sw-update-banner button:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+
+    /* 感覚過敏の児童に配慮して、動きを止められるようにする */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: .01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: .01ms !important;
+        scroll-behavior: auto !important;
+      }
+    }
+
+    /* 背景色が無効化されても「押せる」と分かるようにする */
+    @media (forced-colors: active) {
+      .btn, #sw-update-banner button { border: 2px solid ButtonText; }
     }
   </style>
 </head>
@@ -73,6 +175,9 @@
         <p>Google アカウントでログインしてはじめよう</p>
         <div id="gsi-button"></div>
         <p class="note" id="login-note">学校の Google アカウントでサインインしてください。パスワードがこのアプリに渡ることはありません。</p>
+        <!-- アドレスバーの小さなアイコンは児童には見つけられないので、
+             インストールできる状態のときだけここにボタンを出す -->
+        <button type="button" class="btn hidden" id="install-app">📲 アプリを入れる</button>
       </div>
       <div id="gate-fallback" class="hidden">
         <p>うまくつながらないみたい…<br>下のボタンでひらくと、ひらいた<strong>先のタブでそのまま</strong>つかえるよ。<br>（この画面はとじないでね）</p>
@@ -383,9 +488,73 @@
     // ── PWA ──
     if ('serviceWorker' in navigator && location.protocol === 'https:') {
       window.addEventListener('load', function () {
-        navigator.serviceWorker.register('sw.js').catch(function () {});
+        navigator.serviceWorker.register('sw.js').then(function (reg) {
+          // 新しい版が用意できたら、児童にも分かる言葉で知らせる。
+          // 黙って切り替えると、地図に貼っている最中に画面が変わってしまう。
+          reg.addEventListener('updatefound', function () {
+            var sw = reg.installing;
+            if (!sw) return;
+            sw.addEventListener('statechange', function () {
+              if (sw.state === 'installed' && navigator.serviceWorker.controller) {
+                showUpdateBanner(function () {
+                  sw.postMessage({ type: 'SKIP_WAITING' });
+                  location.reload();
+                });
+              }
+            });
+          });
+        }).catch(function () {});
       });
     }
+
+    // 更新のお知らせ帯。どの画面の上にも同じように乗せられるよう素の DOM で作る。
+    function showUpdateBanner(onApply) {
+      if (document.getElementById('sw-update-banner')) return;
+      var bar = document.createElement('div');
+      bar.id = 'sw-update-banner';
+      bar.setAttribute('role', 'status');
+      bar.setAttribute('aria-live', 'polite');
+      bar.innerHTML =
+        '<span>あたらしい バージョンが あります</span>' +
+        '<button type="button" id="sw-update-apply">さいしんに する</button>' +
+        '<button type="button" id="sw-update-close">あとで</button>';
+      document.body.appendChild(bar);
+      el('sw-update-apply').addEventListener('click', function () { bar.remove(); onApply(); });
+      el('sw-update-close').addEventListener('click', function () { bar.remove(); });
+    }
+
+    // ── 「アプリを入れる」ボタン ──
+    // ブラウザのアドレスバーにある小さなアイコンは児童には見つけられないので、
+    // 合図が来たら画面の中にボタンを出す。合図の受け取り自体は
+    // <head> 最上部の pwa-install-hook.js で済ませてある。
+    var deferredInstall = window.__deferredInstallPrompt || null;
+    function refreshInstallButton() {
+      var btn = el('install-app');
+      if (!btn) return;
+      var standalone = window.matchMedia('(display-mode: standalone)').matches
+        || window.navigator.standalone === true;
+      btn.classList.toggle('hidden', !deferredInstall || standalone);
+    }
+    window.addEventListener('pwa-installable', function () {
+      deferredInstall = window.__deferredInstallPrompt;
+      refreshInstallButton();
+    });
+    window.addEventListener('pwa-installed', function () {
+      deferredInstall = null;
+      refreshInstallButton();
+    });
+    if (el('install-app')) {
+      el('install-app').addEventListener('click', function () {
+        if (!deferredInstall) return;
+        var p = deferredInstall;
+        deferredInstall = null;
+        window.__deferredInstallPrompt = null;
+        refreshInstallButton();
+        // 合図は一度きりしか使えない。失敗しても再表示はしない（二重に出ると混乱する）
+        try { p.prompt(); } catch (e) { /* noop */ }
+      });
+    }
+    refreshInstallButton();
 
     // ── GIS ローダー ──
     var s = document.createElement('script');

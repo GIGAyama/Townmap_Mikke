@@ -1,27 +1,61 @@
 {
   "name": "みっけ！ 協働学習プラットフォーム",
   "short_name": "みっけ！",
-  "description": "マップ型協働学習プラットフォーム",
+  "description": "町の「みっけ」を地図に貼って、クラスのみんなで見せ合える協働学習アプリ",
   "lang": "ja",
-  "start_url": "/Townmap_Mikke/",
+  "dir": "ltr",
   "id": "/Townmap_Mikke/",
+  "start_url": "/Townmap_Mikke/",
   "scope": "/Townmap_Mikke/",
   "display": "standalone",
+  "display_override": [
+    "standalone",
+    "fullscreen",
+    "minimal-ui"
+  ],
+  "launch_handler": {
+    "client_mode": [
+      "navigate-existing",
+      "auto"
+    ]
+  },
   "orientation": "any",
   "background_color": "#f8fafc",
   "theme_color": "#0ea5e9",
+  "categories": [
+    "education",
+    "kids"
+  ],
   "icons": [
     {
-      "src": "icon.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
       "purpose": "any"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-maskable-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     },
     {
       "src": "icon.svg",
       "sizes": "any",
       "type": "image/svg+xml",
-      "purpose": "maskable"
+      "purpose": "any"
     }
   ]
 }
