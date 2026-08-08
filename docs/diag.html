@@ -139,11 +139,12 @@
       swJobs.push(caches.keys().then(function (keys) { swInfo.push('キャッシュ=' + (keys.join(',') || 'なし')); }));
     }
     Promise.all(swJobs).then(function () {
-      // 最新キャッシュ名（docs/sw.js の CACHE_NAME）以外の mikke-shell-* が残っていたら古い
-      var CURRENT_CACHE = 'mikke-shell-v5';
+      // 最新キャッシュ名（docs/sw.js の CACHE_NAME）以外の mikke-shell-* が残っていたら古い。
+      // ⚠️ sw.js の APP_VERSION を上げたら、この定数も必ず同じ値に合わせること
+      //    （ずれていると、最新の端末まで「古いシェルが残っています」と誤判定する）
+      var CURRENT_CACHE = 'mikke-shell-v6';
       var joined = swInfo.join(' / ');
-      var stale = /mikke-shell-v\d+/.test(joined) && joined.indexOf(CURRENT_CACHE) < 0 ||
-        ['v1', 'v2', 'v3', 'v4'].some(function (v) { return joined.indexOf('mikke-shell-' + v) >= 0; });
+      var stale = /mikke-shell-v\d+/.test(joined) && joined.indexOf(CURRENT_CACHE) < 0;
       setStep('sw', stale ? 'ng' : 'ok', 'シェルのキャッシュ状態',
         swInfo.join(' / ') + (stale ? ' → 古いシェルが残っています。「キャッシュを全部消して再読み込み」を押してください' : ''));
     }).catch(function (e) { setStep('sw', 'ok', 'シェルのキャッシュ状態', '確認不可: ' + e); });
