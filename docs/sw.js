@@ -25,7 +25,7 @@
  * 児童がオフラインで開いても起動せず、しかも原因がそのアプリ側に見えないため
  * 「たまに開かなくなる」という再現しにくい不具合になっていた。 */
 const CACHE_PREFIX = 'mikke-shell-';
-const APP_VERSION = 'v6'; // ← リリースごとに必ず上げる
+const APP_VERSION = 'v7'; // ← リリースごとに必ず上げる
 const CACHE_NAME = CACHE_PREFIX + APP_VERSION;
 
 const SHELL_ASSETS = [

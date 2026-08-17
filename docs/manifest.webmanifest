@@ -4,9 +4,9 @@
   "description": "町の「みっけ」を地図に貼って、クラスのみんなで見せ合える協働学習アプリ",
   "lang": "ja",
   "dir": "ltr",
-  "id": "/Townmap_Mikke/",
-  "start_url": "/Townmap_Mikke/",
-  "scope": "/Townmap_Mikke/",
+  "id": "./",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
   "display_override": [
     "standalone",
