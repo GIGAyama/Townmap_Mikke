@@ -225,11 +225,21 @@ function lgGenerateAIPortfolio(payloadJson) {
       return jsonOk_({ portfolio: 'まだ活動の記録（ピンやチャット）がありません。' });
     }
 
-    let prompt = 'あなたは小学校の先生です。児童「' + (user ? user.name : 'この児童') +
-      '」の「地図学習」での活動記録を分析し、温かいフィードバックを作成してください。\n\n【ピンを刺した記録】\n';
-    pins.forEach(function (pin) { prompt += '- 発見対象[' + pin.title + ']: メモ[' + (pin.memo || 'なし') + '] アイコン[' + pin.color + ']\n'; });
+    // 新しい教員 API と同じく、AI には実名を渡さず仮名（対象児童・児童A…）で送る。
+    const aliasMap = createNameAliases_(
+      getTableData_(ss, TABLES.USERS).map(function (u) { return u.name; }),
+      user ? user.name : ''
+    );
+
+    let prompt = 'あなたは小学校の先生です。児童「対象児童」' +
+      'の「地図学習」での活動記録を分析し、温かいフィードバックを作成してください。\n' +
+      '※児童名は「対象児童」「児童A」のような仮名にしてあります。返事でも仮名のまま書いてください。\n\n【ピンを刺した記録】\n';
+    pins.forEach(function (pin) {
+      prompt += '- 発見対象[' + redactForAi_(pin.title, aliasMap.aliases) + ']: メモ['
+        + (redactForAi_(pin.memo, aliasMap.aliases) || 'なし') + '] アイコン[' + pin.color + ']\n';
+    });
     prompt += '\n【発言記録】\n';
-    chats.forEach(function (chat) { prompt += '- ' + chat.message + '\n'; });
+    chats.forEach(function (chat) { prompt += '- ' + redactForAi_(chat.message, aliasMap.aliases) + '\n'; });
     prompt += '\n【友達へのリアクション回数】: ' + reactions.length + '回\n';
     prompt += '\n以下の3項目で出力してください。\n1. 🔍 興味関心の傾向（どんなものに目を向けているか）\n2. ✨ 素晴らしい点（表現や友達への関わりの良さ）\n3. 💌 先生からのメッセージ（小学生に向けて優しい言葉で）';
 
@@ -242,7 +252,8 @@ function lgGenerateAIPortfolio(payloadJson) {
       'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey, options);
     const resData = JSON.parse(response.getContentText());
     if (resData.error) throw new Error('AI_ERROR: ' + resData.error.message);
-    return jsonOk_({ portfolio: resData.candidates[0].content.parts[0].text });
+    // 先生の画面では実名で読めるよう、仮名を名簿の名前に戻してから返す。
+    return jsonOk_({ portfolio: rehydrateAliases_(resData.candidates[0].content.parts[0].text, aliasMap.reverse) });
   } catch (e) { return jsonErr_(e); }
 }
 

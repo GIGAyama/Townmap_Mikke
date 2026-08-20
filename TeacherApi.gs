@@ -557,14 +557,23 @@ function tpGenerateAIPortfolio(classCode, payloadJson) {
       return jsonOk_({ portfolio: 'まだ活動の記録（ピンやチャット）がありません。' });
     }
 
-    let prompt = 'あなたは小学校の先生です。児童「' + (member.displayName || 'この児童') +
-      '」の「地図学習」での活動記録を分析し、温かいフィードバックを作成してください。\n\n';
+    // AI には実名（表示名）を渡さない。対象児童は「対象児童」、ほかの子は「児童A」…に置き換え、
+    // ピンのメモやチャット本文に書かれた友達の名前・連絡先もまとめて消してから送る。
+    const aliasMap = createNameAliases_(
+      getMembers_(ss).map(function (m) { return m.displayName; }),
+      member.displayName
+    );
+
+    let prompt = 'あなたは小学校の先生です。児童「対象児童」' +
+      'の「地図学習」での活動記録を分析し、温かいフィードバックを作成してください。\n' +
+      '※児童名は「対象児童」「児童A」のような仮名にしてあります。返事でも仮名のまま書いてください。\n\n';
     prompt += '【ピンを刺した記録】\n';
     pins.forEach(function (pin) {
-      prompt += '- 発見対象[' + pin.title + ']: メモ[' + (pin.memo || 'なし') + '] アイコン[' + pin.color + ']\n';
+      prompt += '- 発見対象[' + redactForAi_(pin.title, aliasMap.aliases) + ']: メモ['
+        + (redactForAi_(pin.memo, aliasMap.aliases) || 'なし') + '] アイコン[' + pin.color + ']\n';
     });
     prompt += '\n【発言記録】\n';
-    chats.forEach(function (chat) { prompt += '- ' + chat.message + '\n'; });
+    chats.forEach(function (chat) { prompt += '- ' + redactForAi_(chat.message, aliasMap.aliases) + '\n'; });
     prompt += '\n【友達へのリアクション回数】: ' + reactions.length + '回\n';
     prompt += '\n以下の3項目で出力してください。\n1. 🔍 興味関心の傾向（どんなものに目を向けているか）\n' +
       '2. ✨ 素晴らしい点（表現や友達への関わりの良さ）\n3. 💌 先生からのメッセージ（小学生に向けて優しい言葉で）';
@@ -579,7 +588,8 @@ function tpGenerateAIPortfolio(classCode, payloadJson) {
     const resData = JSON.parse(response.getContentText());
     if (resData.error) throw new Error('AI_ERROR: ' + resData.error.message);
 
-    return jsonOk_({ portfolio: resData.candidates[0].content.parts[0].text });
+    // 先生の画面では実名で読めるよう、仮名を表示名に戻してから返す。
+    return jsonOk_({ portfolio: rehydrateAliases_(resData.candidates[0].content.parts[0].text, aliasMap.reverse) });
   } catch (e) { return jsonErr_(e); }
 }
 

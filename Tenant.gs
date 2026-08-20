@@ -113,6 +113,84 @@ function sanitizeRecords_(rows) {
 }
 
 // ────────────────────────────────────────────────────────────────
+// AI（Gemini）に送る前の仮名化
+//   外部の AI に実名や連絡先を渡さないための共通処理。
+//   送るとき: 表示名 → 「対象児童」「児童A」…／メール・電話・郵便番号 → 伏せ字
+//   返すとき: 仮名 → 元の表示名（先生の画面では実名で読めるようにする）
+// ────────────────────────────────────────────────────────────────
+
+const AI_EMAIL_PATTERN  = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
+const AI_PHONE_PATTERN  = /(?:\+?81[-\s]?)?0\d{1,4}[-\s]?\d{1,4}[-\s]?\d{3,4}/g;
+const AI_POSTAL_PATTERN = /〒?\s?\d{3}-\d{4}/g;
+
+/** 正規表現で特別な意味を持つ記号を打ち消す（名前に記号が入っていても壊れないように） */
+function escapeRegExp_(v) {
+  return String(v === null || v === undefined ? '' : v).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** 名前から空白（半角・全角）を取り除く。「やま だ」と「やまだ」を同じ名前として扱うため */
+function compactName_(v) {
+  return String(v === null || v === undefined ? '' : v).replace(/[\s　]/g, '');
+}
+
+/** メールアドレス・電話番号・郵便番号を伏せ字にする（ピンのメモやチャットの本文用） */
+function maskContact_(v) {
+  return String(v === null || v === undefined ? '' : v)
+    .replace(AI_EMAIL_PATTERN, '[メールアドレス]')
+    .replace(AI_PHONE_PATTERN, '[電話番号]')
+    .replace(AI_POSTAL_PATTERN, '[郵便番号]');
+}
+
+/**
+ * 表示名 → 仮名の対応表を作る。
+ * 表示名は出席番号やニックネームのこともあるが、実名を入れる運用もできるので一律で仮名化する。
+ * @param {string[]} names 名簿にある表示名（空欄・重複は飛ばす）
+ * @param {string} targetName 分析対象の児童の表示名（この子だけ「対象児童」にする）
+ * @return {{aliases: Object, reverse: Object}} aliases=送る前用 / reverse=返答を戻す用
+ */
+function createNameAliases_(names, targetName) {
+  const aliases = {};
+  const reverse = {};
+  const target = String(targetName || '').trim();
+  if (target) { aliases[target] = '対象児童'; reverse['対象児童'] = target; }
+  let seq = 0;
+  (names || []).forEach(function (raw) {
+    const name = String(raw === null || raw === undefined ? '' : raw).trim();
+    if (!name || aliases[name]) return;
+    const alias = '児童' + String.fromCharCode(65 + (seq % 26)) + (seq >= 26 ? Math.floor(seq / 26) : '');
+    aliases[name] = alias;
+    reverse[alias] = name;
+    seq++;
+  });
+  return { aliases: aliases, reverse: reverse };
+}
+
+/** AI に送る文章から個人情報を消す。名前は仮名に、連絡先は伏せ字にする */
+function redactForAi_(v, aliases) {
+  let text = String(v === null || v === undefined ? '' : v);
+  const map = aliases || {};
+  // 長い名前から先に置き換える（短い名前が先に消えて長い名前が崩れるのを防ぐ）
+  Object.keys(map).sort(function (a, b) { return b.length - a.length; }).forEach(function (name) {
+    text = text.replace(new RegExp(escapeRegExp_(name), 'g'), map[name]);
+    const compact = compactName_(name);
+    if (compact && compact !== name) {
+      text = text.replace(new RegExp(escapeRegExp_(compact), 'g'), map[name]);
+    }
+  });
+  return maskContact_(text);
+}
+
+/** AI の返答に含まれる仮名を元の表示名に戻す（児童A と 児童A1 が混ざっても崩れないよう長い順に戻す） */
+function rehydrateAliases_(v, reverse) {
+  let text = String(v === null || v === undefined ? '' : v);
+  const map = reverse || {};
+  Object.keys(map).sort(function (a, b) { return b.length - a.length; }).forEach(function (alias) {
+    text = text.replace(new RegExp(escapeRegExp_(alias), 'g'), map[alias]);
+  });
+  return text;
+}
+
+// ────────────────────────────────────────────────────────────────
 // 入力バリデーション（payload はホワイトリストしたキーのみ書き込む）
 // ────────────────────────────────────────────────────────────────
 
