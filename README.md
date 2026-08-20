@@ -339,7 +339,7 @@ GAS エディタ「プロジェクトの設定 > スクリプト プロパティ
 `docs/` は GitHub Pages 上の PWA シェルです。
 
 - **ホーム画面に追加できる**: `beforeinstallprompt` を `<head>` 最上部の `pwa-install-hook.js` で捕捉し、ログイン画面に「📲 アプリを入れる」ボタンを出す（iOS は手動追加。手順は [MANUAL.md](MANUAL.md)）
-- **他アプリを壊さない**: Service Worker は `mikke-shell-` で始まる**自アプリのキャッシュだけ**を削除する。`gigayama.github.io` は多数のアプリが同一オリジンを共有しているため、これは必須の制約
+- **他アプリを壊さない**: Service Worker は `mikke-shell-` で始まる**自アプリのキャッシュだけ**を削除する。旧配信元の `gigayama.github.io` は多数のアプリが同一オリジンを共有しているため、これは必須の制約
 - **勝手に切り替わらない**: `skipWaiting()` は自動では呼ばず、「あたらしい バージョンが あります → さいしんに する」を押した時だけ更新する
 - **GAS と GIS はキャッシュしない**: `script.google.com` / `*.googleusercontent.com` / `accounts.google.com` はクロスオリジンとして素通し。`diag.html` も常にネットワークから取得
 - **オフライン**: 画面遷移は network-first。圏外ではキャッシュ済みシェル → `offline.html` の順にフォールバック

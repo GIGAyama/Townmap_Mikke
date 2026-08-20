@@ -11,7 +11,7 @@
 地図は先生が用意した画像を使うので、町たんけんだけのものではありません。校庭の生きものさがし、避難経路の危険さがし、校区の安全マップ、修学旅行の下調べなど、地図や見取り図があるところなら同じように使えます。
 
 こちらから使えます。
-https://gigayama.github.io/Townmap_Mikke/
+https://townmap-mikke.giga-school.com/
 
 じつはこのアプリには前の版があって、そのときはクラスごとにスプレッドシートを用意して、先生がひとつずつ共有の設定をする必要がありました。そこがいちばんの壁だったので、まるごと作り直しました。いまは、先生が共通のリンクを開いてクラス名を入れるだけで、記録用のスプレッドシートが先生のドライブにでき、アプリから読み書きするための共有まで自動で終わります。先生がさわる設定は、ひとつもありません。
 
@@ -176,7 +176,7 @@ https://gigayama.github.io/Townmap_Mikke/
 
 クラスのリンクを知っているだけでは参加できない作りです。クラスコードは紛らわしい文字を除いた32種類の文字を8桁ならべたもので、組み合わせは1兆通りをこえます。それでも、コードは宛先であって合いことばではないと考えているので、名簿にない人は参加できないところで止まります。参加の承認制は、はじめから入になっています。リンクが学外に漏れたときは、管理画面からコードを作り直せます。古いリンクと QR はその場で使えなくなり、名簿と記録はそのまま残ります。
 
-校内のフィルタリングでは、次のアドレスを通してもらう必要があります。アプリの置き場所として script.google.com と googleusercontent.com、入り口の置き場所として gigayama.github.io、サインインのために accounts.google.com、記録のために docs.google.com、画面を組み立てる部品のために unpkg.com と cdn.tailwindcss.com、書体のために fonts.googleapis.com と fonts.gstatic.com です。AI の機能を使う場合だけ generativelanguage.googleapis.com も必要になります。部品の置き場所が止められていると、画面がまっ白のまま動きません。
+校内のフィルタリングでは、次のアドレスを通してもらう必要があります。アプリの置き場所として script.google.com と googleusercontent.com、入り口の置き場所として townmap-mikke.giga-school.com、サインインのために accounts.google.com、記録のために docs.google.com、画面を組み立てる部品のために unpkg.com と cdn.tailwindcss.com、書体のために fonts.googleapis.com と fonts.gstatic.com です。AI の機能を使う場合だけ generativelanguage.googleapis.com も必要になります。部品の置き場所が止められていると、画面がまっ白のまま動きません。
 
 学校が Google Workspace for Education を使っている場合、18歳未満のアカウントは外部のアプリを使えない設定が既定になっています。これは先生の操作では直せません。管理コンソールで、このアプリを信頼済みとして許可してもらう必要があります。学校ごとに一度だけ必要な作業です。
 
