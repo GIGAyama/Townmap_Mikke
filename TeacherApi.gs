@@ -225,7 +225,9 @@ function tpRegisterExisting(input, className) {
         memberCount: 0
       });
     });
-    addOwnedCode_(email, code);
+    // own_ とレジストリは読み→書きの2手なので、ロックの外で走らせると
+    // 並行実行と混ざって片方の更新が消える。ここも必ずロックで包む。
+    withScriptLock_(function () { addOwnedCode_(email, code); });
     writeMeta_(ss, {
       schemaVersion: CONFIG.SCHEMA_VERSION,
       classCode: code,
@@ -234,7 +236,7 @@ function tpRegisterExisting(input, className) {
       createdAt: new Date().toISOString()
     });
     upsertMember_(ss, { email: email, displayName: '先生', role: 'teacher', status: 'active' });
-    updateClassRecord_(code, { memberCount: activeStudentCount_(ss) });
+    withScriptLock_(function () { updateClassRecord_(code, { memberCount: activeStudentCount_(ss) }); });
 
     return jsonOk_({
       classCode: code,
@@ -279,7 +281,7 @@ function tpApprove(classCode, emails) {
     if (!emails || !emails.length) throw new Error('BAD_INPUT: 対象を選択してください');
     const ss = openClassSs_(g.code);
     setMemberStatus_(ss, emails, 'active');
-    updateClassRecord_(g.code, { memberCount: activeStudentCount_(ss) });
+    withScriptLock_(function () { updateClassRecord_(g.code, { memberCount: activeStudentCount_(ss) }); });
     return jsonOk_({});
   } catch (e) { return jsonErr_(e); }
 }
@@ -292,7 +294,7 @@ function tpRemove(classCode, email) {
     if (target === g.email) throw new Error('BAD_INPUT: 自分自身は削除できません');
     const ss = openClassSs_(g.code);
     setMemberStatus_(ss, [target], 'removed');
-    updateClassRecord_(g.code, { memberCount: activeStudentCount_(ss) });
+    withScriptLock_(function () { updateClassRecord_(g.code, { memberCount: activeStudentCount_(ss) }); });
     return jsonOk_({});
   } catch (e) { return jsonErr_(e); }
 }
@@ -300,7 +302,7 @@ function tpRemove(classCode, email) {
 function tpSetJoinOpen(classCode, isOpen) {
   try {
     const g = assertOwner_(classCode);
-    updateClassRecord_(g.code, { joinOpen: isOpen === true });
+    withScriptLock_(function () { updateClassRecord_(g.code, { joinOpen: isOpen === true }); });
     return jsonOk_({ joinOpen: isOpen === true });
   } catch (e) { return jsonErr_(e); }
 }
@@ -308,7 +310,7 @@ function tpSetJoinOpen(classCode, isOpen) {
 function tpSetRequireApproval(classCode, required) {
   try {
     const g = assertOwner_(classCode);
-    updateClassRecord_(g.code, { requireApproval: required === true });
+    withScriptLock_(function () { updateClassRecord_(g.code, { requireApproval: required === true }); });
     return jsonOk_({ requireApproval: required === true });
   } catch (e) { return jsonErr_(e); }
 }
@@ -321,20 +323,17 @@ function tpRotateCode(classCode) {
     withScriptLock_(function () {
       newCode = generateClassCode_();
       const rec = getClassRecord_(g.code);
-      putClassRecord_(newCode, {
-        spreadsheetId: rec.spreadsheetId,
-        ownerEmail: rec.ownerEmail,
-        className: rec.className,
-        createdAt: rec.createdAt,
-        joinOpen: rec.joinOpen,
-        requireApproval: rec.requireApproval,
-        revoked: false,
-        memberCount: rec.memberCount || 0
-      });
+      // フィールドを1つずつ写すとレコードに項目が増えたとき取りこぼす。
+      // 丸ごと引き継いで revoked だけ戻す（reflection 方式）。
+      const next = JSON.parse(JSON.stringify(rec));
+      next.revoked = false;
+      putClassRecord_(newCode, next);
       updateClassRecord_(g.code, { revoked: true });
     });
-    removeOwnedCode_(g.email, g.code);
-    addOwnedCode_(g.email, newCode);
+    withScriptLock_(function () {
+      removeOwnedCode_(g.email, g.code);
+      addOwnedCode_(g.email, newCode);
+    });
     try { setMeta_(openClassSs_(newCode), 'classCode', newCode); } catch (e) { /* meta は補助情報 */ }
     return jsonOk_({ classCode: newCode, studentUrl: studentUrlFor_(newCode) });
   } catch (e) { return jsonErr_(e); }
@@ -344,8 +343,10 @@ function tpRotateCode(classCode) {
 function tpRevokeClass(classCode) {
   try {
     const g = assertOwner_(classCode);
-    updateClassRecord_(g.code, { revoked: true });
-    removeOwnedCode_(g.email, g.code);
+    withScriptLock_(function () {
+      updateClassRecord_(g.code, { revoked: true });
+      removeOwnedCode_(g.email, g.code);
+    });
     return jsonOk_({});
   } catch (e) { return jsonErr_(e); }
 }
@@ -517,7 +518,7 @@ function tpExecuteAction(classCode, payloadJson) {
           status: 'active'
         });
       });
-      updateClassRecord_(g.code, { memberCount: activeStudentCount_(ss) });
+      withScriptLock_(function () { updateClassRecord_(g.code, { memberCount: activeStudentCount_(ss) }); });
       return jsonOk_({});
     }
     if (p.action === 'save_api_key') {
@@ -582,9 +583,10 @@ function tpGenerateAIPortfolio(classCode, payloadJson) {
       contents: [{ parts: [{ text: prompt }] }],
       systemInstruction: { parts: [{ text: 'あなたは優しく、児童の良いところを見つけるのが得意な先生です。マークダウンを使用せず、プレーンテキストで見やすく出力してください。' }] }
     };
-    const options = { method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true };
+    // API キーは URL クエリに入れない（アクセスログやプロキシに残る）。ヘッダで渡す。
+    const options = { method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': apiKey }, payload: JSON.stringify(payload), muteHttpExceptions: true };
     const response = UrlFetchApp.fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey, options);
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', options);
     const resData = JSON.parse(response.getContentText());
     if (resData.error) throw new Error('AI_ERROR: ' + resData.error.message);
 

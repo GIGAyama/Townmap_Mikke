@@ -76,7 +76,7 @@ function stJoin(idToken, classCode, displayName, number) {
     });
 
     if (status === 'active') {
-      try { updateClassRecord_(code, { memberCount: activeStudentCount_(ss) }); } catch (e) { /* 補助情報 */ }
+      try { withScriptLock_(function () { updateClassRecord_(code, { memberCount: activeStudentCount_(ss) }); }); } catch (e) { /* 補助情報 */ }
     }
     return jsonOk_({ state: status });
   } catch (e) { return jsonErr_(e); }
