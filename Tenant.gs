@@ -152,11 +152,13 @@ function createNameAliases_(names, targetName) {
   const aliases = {};
   const reverse = {};
   const target = String(targetName || '').trim();
-  if (target) { aliases[target] = '対象児童'; reverse['対象児童'] = target; }
+  // 1文字の名前は普通の言葉と衝突する（本文の一般語まで置き換わり、
+  // 実名も守れず本文も壊れる）ため対象外にする。
+  if (target.length >= 2) { aliases[target] = '対象児童'; reverse['対象児童'] = target; }
   let seq = 0;
   (names || []).forEach(function (raw) {
     const name = String(raw === null || raw === undefined ? '' : raw).trim();
-    if (!name || aliases[name]) return;
+    if (name.length < 2 || aliases[name]) return; // 空欄・1文字・同名の重複は飛ばす
     const alias = '児童' + String.fromCharCode(65 + (seq % 26)) + (seq >= 26 ? Math.floor(seq / 26) : '');
     aliases[name] = alias;
     reverse[alias] = name;
@@ -173,7 +175,7 @@ function redactForAi_(v, aliases) {
   Object.keys(map).sort(function (a, b) { return b.length - a.length; }).forEach(function (name) {
     text = text.replace(new RegExp(escapeRegExp_(name), 'g'), map[name]);
     const compact = compactName_(name);
-    if (compact && compact !== name) {
+    if (compact.length >= 2 && compact !== name) {
       text = text.replace(new RegExp(escapeRegExp_(compact), 'g'), map[name]);
     }
   });
