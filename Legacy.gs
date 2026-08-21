@@ -247,9 +247,10 @@ function lgGenerateAIPortfolio(payloadJson) {
       contents: [{ parts: [{ text: prompt }] }],
       systemInstruction: { parts: [{ text: 'あなたは優しく、児童の良いところを見つけるのが得意な先生です。マークダウンを使用せず、プレーンテキストで見やすく出力してください。' }] }
     };
-    const options = { method: 'post', contentType: 'application/json', payload: JSON.stringify(payload), muteHttpExceptions: true };
+    // API キーは URL クエリに入れない（アクセスログやプロキシに残る）。ヘッダで渡す。
+    const options = { method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': apiKey }, payload: JSON.stringify(payload), muteHttpExceptions: true };
     const response = UrlFetchApp.fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=' + apiKey, options);
+      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', options);
     const resData = JSON.parse(response.getContentText());
     if (resData.error) throw new Error('AI_ERROR: ' + resData.error.message);
     // 先生の画面では実名で読めるよう、仮名を名簿の名前に戻してから返す。
