@@ -26,7 +26,11 @@
  * 児童がオフラインで開いても起動せず、しかも原因がそのアプリ側に見えないため
  * 「たまに開かなくなる」という再現しにくい不具合になっていた。 */
 const CACHE_PREFIX = 'mikke-shell-';
-const APP_VERSION = 'v7'; // ← リリースごとに必ず上げる
+// ⚠️ この行は手で直さない。tools/build-sw.mjs が SHELL_ASSETS の中身から書き換える。
+//    手書きだったころは「リリースごとに必ず上げる」が人の仕事で、
+//    2026-08-21 に12リポジトリで同時に上げ忘れる事故が起きた。上げ忘れると
+//    古いシェルのキャッシュが掃除されず、直した画面が児童の端末に届かない。
+const APP_VERSION = 'vae844d70'; /* __APP_VERSION__ */
 const CACHE_NAME = CACHE_PREFIX + APP_VERSION;
 
 const SHELL_ASSETS = [
