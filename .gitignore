@@ -15,3 +15,8 @@ _live/
 .DS_Store
 *.local
 node_modules
+
+# clasp（GASのプッシュ設定。スクリプトIDが入るので置かない）
+
+# 反映前のGASの控え（CIの成果物として持ち出すので、リポジトリには置かない）
+dist/gas-before-push/
