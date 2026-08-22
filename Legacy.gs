@@ -243,18 +243,18 @@ function lgGenerateAIPortfolio(payloadJson) {
     prompt += '\n【友達へのリアクション回数】: ' + reactions.length + '回\n';
     prompt += '\n以下の3項目で出力してください。\n1. 🔍 興味関心の傾向（どんなものに目を向けているか）\n2. ✨ 素晴らしい点（表現や友達への関わりの良さ）\n3. 💌 先生からのメッセージ（小学生に向けて優しい言葉で）';
 
-    const payload = {
-      contents: [{ parts: [{ text: prompt }] }],
-      systemInstruction: { parts: [{ text: 'あなたは優しく、児童の良いところを見つけるのが得意な先生です。マークダウンを使用せず、プレーンテキストで見やすく出力してください。' }] }
-    };
-    // API キーは URL クエリに入れない（アクセスログやプロキシに残る）。ヘッダで渡す。
-    const options = { method: 'post', contentType: 'application/json', headers: { 'x-goog-api-key': apiKey }, payload: JSON.stringify(payload), muteHttpExceptions: true };
-    const response = UrlFetchApp.fetch(
-      'https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent', options);
-    const resData = JSON.parse(response.getContentText());
-    if (resData.error) throw new Error('AI_ERROR: ' + resData.error.message);
+    // 通信・再試行・応答の取り出しは正本 Gemini.gs（GigaGemini）に任せる。
+    // ここに直書きしていた頃は再試行が無く、混み合う時間帯（429）に
+    // ポートフォリオ生成がそのまま失敗していた。API キーは正本側で
+    // x-goog-api-key ヘッダに載る（URL クエリには入れない）。
+    const aiText = GigaGemini.call({
+      apiKey: apiKey,
+      prompt: prompt,
+      model: 'gemini-2.5-flash',
+      systemInstruction: 'あなたは優しく、児童の良いところを見つけるのが得意な先生です。マークダウンを使用せず、プレーンテキストで見やすく出力してください。'
+    });
     // 先生の画面では実名で読めるよう、仮名を名簿の名前に戻してから返す。
-    return jsonOk_({ portfolio: rehydrateAliases_(resData.candidates[0].content.parts[0].text, aliasMap.reverse) });
+    return jsonOk_({ portfolio: rehydrateAliases_(aiText, aliasMap.reverse) });
   } catch (e) { return jsonErr_(e); }
 }
 
