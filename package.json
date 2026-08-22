@@ -9,6 +9,7 @@
     "gas:status": "node scripts/gas-deploy.mjs status",
     "gas:backup": "node scripts/gas-deploy.mjs backup",
     "gas:push": "node scripts/gas-deploy.mjs push",
-    "deploy": "node scripts/gas-deploy.mjs deploy"
+    "deploy": "node scripts/gas-deploy.mjs deploy",
+    "build:sw": "node tools/build-sw.mjs"
   }
 }

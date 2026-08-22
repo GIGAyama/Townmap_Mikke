@@ -30,6 +30,8 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: SW の版がずれていないか
+        run: node tools/build-sw.mjs --check
       - name: .gs / .js の構文検査
         run: |
           set -e
