@@ -4081,6 +4081,9 @@ var qrcode = function() {
               {/* モバイルでは地図領域を最大化するためフッターを表示しない */}
               <footer className="flex-none h-8 hidden md:flex justify-center items-center bg-white border-t border-slate-200 text-[10px] sm:text-xs text-slate-400 font-bold z-50 tracking-wider no-print">
                 © 2026 みっけ！ <a href="https://giga-school.com" target="_blank" className="ml-1.5 text-slate-500 hover:text-brand-500 transition">GIGA山</a>
+                {/* ⚠️ このフッターは hidden md:flex。地図を広く使うため、スマホでは出ない。
+                       リンクもスマホでは出ないので、行き先を増やすときは他の場所も要る。 */}
+                <a href="https://giga-school.com/apps/townmap-mikke/" target="_blank" rel="noopener noreferrer" className="ml-3 text-slate-500 hover:text-brand-500 transition">使い方を読む</a>
               </footer>
 
               {uiState.teacherOpen && <TeacherConsole onClose={()=>setUiState(p=>({...p, teacherOpen: false}))} />}
