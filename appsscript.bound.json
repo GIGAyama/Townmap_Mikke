@@ -1,0 +1,16 @@
+{
+  "//": "配布用スプレッドシート（コンテナバインド）に入れるマニフェスト。docs/copy-distribution.md を参照。このファイルは clasp では送られない（.claspignore が appsscript.json だけを通す）。",
+  "//1": "executeAs=USER_DEPLOYING … 読み書きは公開した先生の権限で走る。児童はスプレッドシートへのアクセス権を1つも持たなくてよい。",
+  "//2": "access=DOMAIN … Session.getActiveUser().getEmail() が取れる唯一の設定。ANYONE にすると本人が分からなくなり、誰も入れなくなる（Bound.gs が BOUND_NO_IDENTITY で止める）。",
+  "//3": "script.container.ui … スプレッドシートのメニュー（点検・修整・はじめの設定）のためだけに要る。承認するのは公開する先生おひとりで、児童には同意画面が出ない。",
+  "timeZone": "Asia/Tokyo",
+  "oauthScopes": [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/script.external_request",
+    "https://www.googleapis.com/auth/userinfo.email",
+    "https://www.googleapis.com/auth/script.container.ui"
+  ],
+  "webapp": { "executeAs": "USER_DEPLOYING", "access": "DOMAIN" },
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8"
+}

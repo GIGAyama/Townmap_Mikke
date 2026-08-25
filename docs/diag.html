@@ -138,16 +138,35 @@
     if (window.caches && caches.keys) {
       swJobs.push(caches.keys().then(function (keys) { swInfo.push('キャッシュ=' + (keys.join(',') || 'なし')); }));
     }
+    // 最新のキャッシュ名は sw.js 自身から読む。
+    // 以前はここに 'mikke-shell-v6' と**手で**書いていた。版が
+    // tools/build-sw.mjs による自動採番（mikke-shell-v75c77543 のような 8 桁の
+    // 16 進）に変わったあとも v6 のままで、しかも判定が /mikke-shell-v\d+/ だったため、
+    // **どんなに古いキャッシュが残っていても永久に「異常なし」**になっていた。
+    // 手で合わせる定数を置くと、こうして黙って死ぬ。
+    swJobs.push(
+      fetch('sw.js', { cache: 'no-store' })
+        .then(function (r) { return r.text(); })
+        .then(function (text) {
+          var m = text.match(/=\s*'([^']+)'\s*;\s*\/\*\s*__APP_VERSION__\s*\*\//);
+          swInfo.push('配信中の版=' + (m ? m[1] : '不明'));
+        })
+        .catch(function () { swInfo.push('配信中の版=取得できませんでした'); }));
+
     Promise.all(swJobs).then(function () {
-      // 最新キャッシュ名（docs/sw.js の CACHE_NAME）以外の mikke-shell-* が残っていたら古い。
-      // ⚠️ sw.js の APP_VERSION を上げたら、この定数も必ず同じ値に合わせること
-      //    （ずれていると、最新の端末まで「古いシェルが残っています」と誤判定する）
-      var CURRENT_CACHE = 'mikke-shell-v6';
       var joined = swInfo.join(' / ');
-      var stale = /mikke-shell-v\d+/.test(joined) && joined.indexOf(CURRENT_CACHE) < 0;
+      var current = (joined.match(/配信中の版=(v[0-9a-z]+)/) || [])[1];
+      var cached = joined.match(/mikke-shell-[0-9a-zA-Z.]+/g) || [];
+      // 「取れなかった」を「異常なし」と言わない
+      if (!current) {
+        setStep('sw', 'wait', 'シェルのキャッシュ状態',
+          joined + ' → 配信中の版が取れませんでした（圏外かフィルタの可能性）。判定していません');
+        return;
+      }
+      var stale = cached.length > 0 && cached.indexOf('mikke-shell-' + current) < 0;
       setStep('sw', stale ? 'ng' : 'ok', 'シェルのキャッシュ状態',
-        swInfo.join(' / ') + (stale ? ' → 古いシェルが残っています。「キャッシュを全部消して再読み込み」を押してください' : ''));
-    }).catch(function (e) { setStep('sw', 'ok', 'シェルのキャッシュ状態', '確認不可: ' + e); });
+        joined + (stale ? ' → 古いシェルが残っています。「キャッシュを全部消して再読み込み」を押してください' : ''));
+    }).catch(function (e) { setStep('sw', 'wait', 'シェルのキャッシュ状態', '確認不可: ' + e); });
 
     // ── 2.5 サーバー設定の自動判定（?diag=1 エンドポイント） ──
     // Cookie なしの fetch でこの JSON が読めた時点で「デプロイ S は匿名アクセス可

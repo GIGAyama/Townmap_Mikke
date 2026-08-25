@@ -120,11 +120,21 @@ function jsonErr_(e) {
 
 /**
  * ルーティング。
- * デプロイの判別は exec URL の照合ではなく URL パラメータで行う:
- *   - 教員ポータル(T)はシェルが必ず ?portal=1 を付けて開く
- *   - 児童用(S)はシェルが必ず ?mode=student&c=<code> を付けて開く
- * 児童用画面ロジックが T 側 URL でも壊れないよう、mode パラメータで明示する。
- * 旧バインド型（スプレッドシート紐付け）で動かした場合は legacy モードで従来動作。
+ *
+ * ■ コンテナバインド（いまの配り方）
+ *   スプレッドシートのコピーを先生に配り、そのファイルの中の Apps Script から
+ *   先生ご自身がウェブアプリを 1 本公開する。URL パラメータは何も要らない。
+ *   束ねられたスプレッドシートがそのままクラス DB になる（Bound.gs）。
+ *
+ * ■ 共通デプロイ（前の配り方。すでに公開してある学級のために残す）
+ *   1 つのプロジェクトから T（教員ポータル）と S（児童用）の 2 本を公開し、
+ *   GitHub Pages のシェルがクラスコードを付けて開く。
+ *     - 教員ポータル(T) はシェルが必ず ?portal=1 を付けて開く
+ *     - 児童用(S)     はシェルが必ず ?mode=student&c=<code> を付けて開く
+ *
+ * ■ 旧バインド型（さらに前。Users_名簿 シートで動いていた学級）
+ *   Members シートが無く Users_名簿 にデータがあるファイルは legacy で開く。
+ *   ここを消すと、貼り付けで入れた古い学級の記録が見えなくなる。
  */
 function doGet(e) {
   const p = (e && e.parameter) || {};
@@ -133,7 +143,7 @@ function doGet(e) {
   try { bound = SpreadsheetApp.getActiveSpreadsheet(); } catch (err) { bound = null; }
   const mode = p.portal === '1' ? 'teacher'
              : p.mode === 'student' ? 'student'
-             : bound ? 'legacy'
+             : bound ? boundModeFor_(bound)
              : 'landing';
   const t = HtmlService.createTemplateFromFile('App');
   t.bootMode = mode;
@@ -147,6 +157,27 @@ function doGet(e) {
     // その代償として、ID トークン検証（Auth.gs）とシェル側 origin 検証を必須の防御線とする。
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1.0');
+}
+
+/**
+ * 束ねられたスプレッドシートを、新しい形（bound）で開くか旧バインド型（legacy）で開くか。
+ *
+ * 判定は「そのファイルに何が入っているか」だけで行う。URL のパラメータや
+ * ScriptProperties は使わない（先生がどちらの手順で入れたかを覚えていなくても、
+ * 開いたときに正しいほうが出るようにするため）。
+ *
+ *   Members シートに 1 行でもある            → bound（新しい形）
+ *   Members が空で Users_名簿 にデータがある  → legacy（貼り付けで入れた古い学級）
+ *   どちらも空（＝配ったテンプレートのコピー直後） → bound
+ */
+function boundModeFor_(ss) {
+  try {
+    const members = ss.getSheetByName(TABLES.MEMBERS.name);
+    if (members && members.getLastRow() >= 2) return 'bound';
+    const users = ss.getSheetByName(TABLES.USERS.name);
+    if (users && users.getLastRow() >= 2) return 'legacy';
+  } catch (err) { /* 読めないときは新しい形で開き、Bound.gs 側が案内を出す */ }
+  return 'bound';
 }
 
 /**

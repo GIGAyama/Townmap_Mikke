@@ -11,6 +11,10 @@
 #
 # .gs を足したときは何もしなくても送られます。.html を足したときは
 # ここに1行足してください。npm run gas:status で確かめられます。
+#
+# appsscript.bound.json（コンテナバインド版のマニフェストの見本）は
+# **送りません**。名指しで戻しているのは appsscript.json だけなので、
+# 何もしなくても除外されます。
 **/**
 !appsscript.json
 !*.gs

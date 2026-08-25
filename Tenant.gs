@@ -236,38 +236,40 @@ function formatUnit_(unit) {
 }
 
 function coreSavePin_(ss, email, d) {
-  const row = [
-    vRecordId_(d.pin_id),
-    vStr_(d.unit_id, 60, '単元'),
-    vStr_(d.map_id, 60, '地図'),
-    email,                                   // 検証済み email（クライアント申告は無視）
-    vNum_(d.x, 0, 100, '位置'),
-    vNum_(d.y, 0, 100, '位置'),
-    vStr_(d.color, 20, 'アイコン'),
-    vStr_(d.title, 100, 'なまえ'),
-    vStr_(d.memo, 1000, 'メモ'),
-    vImageUrl_(d.image_url),
-    new Date()
-  ];
-  appendRowLocked_(ss, TABLES.PINS, row);
-  return { recordId: row[0] };
+  const pinId = vRecordId_(d.pin_id);
+  // 児童が書く文字（なまえ・メモ）は safeCellText_ を通す。先生がシートを開いた
+  // 瞬間に数式として実行されるのを防ぐため（Db.gs の safeCellText_ を参照）。
+  appendRowLocked_(ss, TABLES.PINS, {
+    pin_id: pinId,
+    unit_id: vStr_(d.unit_id, 60, '単元'),
+    map_id: vStr_(d.map_id, 60, '地図'),
+    email: email,                            // 検証済み email（クライアント申告は無視）
+    x: vNum_(d.x, 0, 100, '位置'),
+    y: vNum_(d.y, 0, 100, '位置'),
+    color: safeCellText_(vStr_(d.color, 20, 'アイコン')),
+    title: safeCellText_(vStr_(d.title, 100, 'なまえ')),
+    memo: safeCellText_(vStr_(d.memo, 1000, 'メモ')),
+    image_url: vImageUrl_(d.image_url),
+    created_at: new Date()
+  });
+  return { recordId: pinId };
 }
 
 function coreSaveChat_(ss, email, d) {
   const targetType = ['general', 'pin', 'chat'].indexOf(d.target_type) >= 0 ? d.target_type : 'general';
   const msg = vStr_(d.message, 500, 'メッセージ');
   if (!msg.trim()) throw new Error('BAD_INPUT: メッセージが空です');
-  const row = [
-    vRecordId_(d.chat_id),
-    vStr_(d.unit_id, 60, '単元'),
-    email,
-    msg,
-    targetType,
-    vStr_(d.target_id, 60, '返信先'),
-    new Date()
-  ];
-  appendRowLocked_(ss, TABLES.CHATS, row);
-  return { recordId: row[0] };
+  const chatId = vRecordId_(d.chat_id);
+  appendRowLocked_(ss, TABLES.CHATS, {
+    chat_id: chatId,
+    unit_id: vStr_(d.unit_id, 60, '単元'),
+    email: email,
+    message: safeCellText_(msg),
+    target_type: targetType,
+    target_id: vStr_(d.target_id, 60, '返信先'),
+    created_at: new Date()
+  });
+  return { recordId: chatId };
 }
 
 function coreToggleReaction_(ss, email, d) {
@@ -278,14 +280,24 @@ function coreToggleReaction_(ss, email, d) {
   withScriptLock_(function () {
     const sheet = ensureSheet_(ss, TABLES.REACTIONS);
     const data = sheet.getDataRange().getValues();
+    const H = headerMapFromRow_(data[0], TABLES.REACTIONS);
+    requireCols_(H, TABLES.REACTIONS, ['email', 'target_type', 'target_id', 'emoji']);
     for (let i = 1; i < data.length; i++) {
-      if (String(data[i][2]).toLowerCase() === email && data[i][3] === targetType &&
-          String(data[i][4]) === targetId && data[i][5] === emoji) {
+      if (String(data[i][H.email]).toLowerCase() === email && data[i][H.target_type] === targetType &&
+          String(data[i][H.target_id]) === targetId && data[i][H.emoji] === emoji) {
         sheet.deleteRow(i + 1);
         return;
       }
     }
-    sheet.appendRow([Utilities.getUuid(), unitId, email, targetType, targetId, emoji, new Date()]);
+    sheet.appendRow(rowFor_(H, TABLES.REACTIONS, {
+      reaction_id: Utilities.getUuid(),
+      unit_id: unitId,
+      email: email,
+      target_type: targetType,
+      target_id: targetId,
+      emoji: safeCellText_(emoji),
+      created_at: new Date()
+    }, data[0].length));
   });
   return {};
 }
@@ -300,9 +312,12 @@ function coreDeleteRecord_(ss, email, recordId, ownOnly) {
   return withScriptLock_(function () {
     const pinSheet = ensureSheet_(ss, TABLES.PINS);
     const pinData = pinSheet.getDataRange().getValues();
+    const PH = headerMapFromRow_(pinData[0], TABLES.PINS);
+    // 行の持ち主が読めない状態で「自分のだけ」を判定させない（消せてしまうため）
+    requireCols_(PH, TABLES.PINS, ['pin_id', 'email']);
     for (let i = 1; i < pinData.length; i++) {
-      if (String(pinData[i][0]) === id) {
-        if (ownOnly && String(pinData[i][3]).toLowerCase() !== email) {
+      if (String(pinData[i][PH.pin_id]) === id) {
+        if (ownOnly && String(pinData[i][PH.email]).toLowerCase() !== email) {
           throw new Error('FORBIDDEN: 自分の記録だけが削除できます');
         }
         pinSheet.deleteRow(i + 1);
@@ -311,9 +326,11 @@ function coreDeleteRecord_(ss, email, recordId, ownOnly) {
     }
     const chatSheet = ensureSheet_(ss, TABLES.CHATS);
     const chatData = chatSheet.getDataRange().getValues();
+    const CH = headerMapFromRow_(chatData[0], TABLES.CHATS);
+    requireCols_(CH, TABLES.CHATS, ['chat_id', 'email']);
     for (let i = 1; i < chatData.length; i++) {
-      if (String(chatData[i][0]) === id) {
-        if (ownOnly && String(chatData[i][2]).toLowerCase() !== email) {
+      if (String(chatData[i][CH.chat_id]) === id) {
+        if (ownOnly && String(chatData[i][CH.email]).toLowerCase() !== email) {
           throw new Error('FORBIDDEN: 自分の記録だけが削除できます');
         }
         chatSheet.deleteRow(i + 1);
@@ -330,24 +347,183 @@ function coreUpdateOwnPin_(ss, email, recordId, d) {
   return withScriptLock_(function () {
     const sheet = ensureSheet_(ss, TABLES.PINS);
     const data = sheet.getDataRange().getValues();
+    const H = headerMapFromRow_(data[0], TABLES.PINS);
+    requireCols_(H, TABLES.PINS, ['pin_id', 'email']);
     for (let i = 1; i < data.length; i++) {
-      if (String(data[i][0]) === id) {
-        if (String(data[i][3]).toLowerCase() !== email) {
+      if (String(data[i][H.pin_id]) === id) {
+        if (String(data[i][H.email]).toLowerCase() !== email) {
           throw new Error('FORBIDDEN: 自分の記録だけが変更できます');
         }
-        const row = data[i].slice();
-        if (d.x !== undefined) row[4] = vNum_(d.x, 0, 100, '位置');
-        if (d.y !== undefined) row[5] = vNum_(d.y, 0, 100, '位置');
-        if (d.color !== undefined) row[6] = vStr_(d.color, 20, 'アイコン');
-        if (d.title !== undefined) row[7] = vStr_(d.title, 100, 'なまえ');
-        if (d.memo !== undefined) row[8] = vStr_(d.memo, 1000, 'メモ');
-        if (d.image_url !== undefined) row[9] = vImageUrl_(d.image_url);
+        const patch = {};
+        if (d.x !== undefined) patch.x = vNum_(d.x, 0, 100, '位置');
+        if (d.y !== undefined) patch.y = vNum_(d.y, 0, 100, '位置');
+        if (d.color !== undefined) patch.color = safeCellText_(vStr_(d.color, 20, 'アイコン'));
+        if (d.title !== undefined) patch.title = safeCellText_(vStr_(d.title, 100, 'なまえ'));
+        if (d.memo !== undefined) patch.memo = safeCellText_(vStr_(d.memo, 1000, 'メモ'));
+        if (d.image_url !== undefined) patch.image_url = vImageUrl_(d.image_url);
+        const row = setCells_(data[i].slice(), H, TABLES.PINS, patch);
         sheet.getRange(i + 1, 1, 1, row.length).setValues([row]);
         return { recordId: id };
       }
     }
     throw new Error('NOT_FOUND: 対象の記録が見つかりません');
   });
+}
+
+/**
+ * 単元まわりの教員操作（単元の追加・地図の追加・チャット/スタンプの切替・スタンプの編集）。
+ *
+ * 以前は TeacherApi.gs と Legacy.gs に同じ処理が 2 本あった。コンテナバインド版
+ * （Bound.gs）を足すと 3 本になり、片方だけ直したときに「先生の画面によって
+ * 挙動が違う」が起きる。呼び出し口（誰が呼べるか）だけを各 API に残し、
+ * シートを触る部分はここ 1 本にまとめる。
+ *
+ * **認可はここでは見ない。** 呼ぶ側が「先生であること」を確かめてから呼ぶこと。
+ */
+function coreUnitAction_(ss, p) {
+  if (p.action === 'save_unit') {
+    const unitId = vRecordId_(p.unit_id);
+    const unitName = safeCellText_(vStr_(p.name, 60, '単元名'));
+    const initMap = [{ id: 'm_' + Date.now(), name: vStr_(p.map_name, 40, '地図名') || '基本マップ', url: vImageUrl_(p.map_url) }];
+    const initStamps = JSON.stringify(['📍', '🐛', '🌸', '🚗', '⚠️', '🏠', '❓', '💡']);
+    withScriptLock_(function () {
+      const unitSheet = ensureSheet_(ss, TABLES.UNITS);
+      const data = unitSheet.getDataRange().getValues();
+      const H = headerMapFromRow_(data[0], TABLES.UNITS);
+      requireCols_(H, TABLES.UNITS, ['unit_id', 'name', 'maps_json', 'chat_enabled', 'stamp_enabled', 'custom_stamps', 'is_active', 'created_at']);
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][H.is_active] === true) unitSheet.getRange(i + 1, H.is_active + 1).setValue(false);
+      }
+      unitSheet.appendRow(rowFor_(H, TABLES.UNITS, {
+        unit_id: unitId, name: unitName, maps_json: JSON.stringify(initMap),
+        chat_enabled: true, stamp_enabled: true, custom_stamps: initStamps,
+        is_active: true, created_at: new Date()
+      }, data[0].length));
+    });
+    return { unitId: unitId };
+  }
+
+  if (p.action === 'add_map') {
+    const mapId = vRecordId_(p.map_id);
+    const mapName = vStr_(p.name, 40, '地図名');
+    const mapUrl = vImageUrl_(p.map_url);
+    withScriptLock_(function () {
+      const unitSheet = ensureSheet_(ss, TABLES.UNITS);
+      const data = unitSheet.getDataRange().getValues();
+      const H = headerMapFromRow_(data[0], TABLES.UNITS);
+      requireCols_(H, TABLES.UNITS, ['unit_id', 'maps_json']);
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][H.unit_id] === p.unit_id) {
+          let maps = [];
+          try { maps = JSON.parse(data[i][H.maps_json] || '[]'); } catch (e) { maps = []; }
+          maps.push({ id: mapId, name: mapName, url: mapUrl });
+          unitSheet.getRange(i + 1, H.maps_json + 1).setValue(JSON.stringify(maps));
+          break;
+        }
+      }
+      if (p.copy_from_map_id) {
+        const pinSheet = ensureSheet_(ss, TABLES.PINS);
+        const pinData = pinSheet.getDataRange().getValues();
+        const PH = headerMapFromRow_(pinData[0], TABLES.PINS);
+        requireCols_(PH, TABLES.PINS, ['pin_id', 'unit_id', 'map_id', 'email', 'x', 'y', 'color', 'title', 'memo', 'image_url', 'created_at']);
+        const width = pinData[0].length;
+        const newPins = [];
+        for (let i = 1; i < pinData.length; i++) {
+          if (pinData[i][PH.unit_id] === p.unit_id && pinData[i][PH.map_id] === p.copy_from_map_id) {
+            newPins.push(rowFor_(PH, TABLES.PINS, {
+              pin_id: Utilities.getUuid(), unit_id: p.unit_id, map_id: mapId,
+              email: pinData[i][PH.email], x: pinData[i][PH.x], y: pinData[i][PH.y],
+              color: pinData[i][PH.color], title: pinData[i][PH.title], memo: pinData[i][PH.memo],
+              image_url: pinData[i][PH.image_url], created_at: new Date()
+            }, width));
+          }
+        }
+        if (newPins.length > 0) {
+          pinSheet.getRange(pinSheet.getLastRow() + 1, 1, newPins.length, newPins[0].length).setValues(newPins);
+        }
+      }
+    });
+    return {};
+  }
+
+  if (p.action === 'toggle_chat' || p.action === 'toggle_stamp') {
+    const col = p.action === 'toggle_chat' ? 'chat_enabled' : 'stamp_enabled';
+    const val = p.action === 'toggle_chat' ? p.chat_enabled === true : p.stamp_enabled === true;
+    withScriptLock_(function () {
+      const unitSheet = ensureSheet_(ss, TABLES.UNITS);
+      const data = unitSheet.getDataRange().getValues();
+      const H = headerMapFromRow_(data[0], TABLES.UNITS);
+      requireCols_(H, TABLES.UNITS, ['unit_id', col]);
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][H.unit_id] === p.unit_id) { unitSheet.getRange(i + 1, H[col] + 1).setValue(val); break; }
+      }
+    });
+    return {};
+  }
+
+  if (p.action === 'update_custom_stamps') {
+    const stamps = (p.custom_stamps || []).slice(0, 24).map(function (s) { return vStr_(s, 8, 'スタンプ'); });
+    withScriptLock_(function () {
+      const unitSheet = ensureSheet_(ss, TABLES.UNITS);
+      const data = unitSheet.getDataRange().getValues();
+      const H = headerMapFromRow_(data[0], TABLES.UNITS);
+      requireCols_(H, TABLES.UNITS, ['unit_id', 'custom_stamps']);
+      for (let i = 1; i < data.length; i++) {
+        if (data[i][H.unit_id] === p.unit_id) {
+          unitSheet.getRange(i + 1, H.custom_stamps + 1).setValue(JSON.stringify(stamps));
+          break;
+        }
+      }
+    });
+    return {};
+  }
+
+  throw new Error('BAD_INPUT: 不明な操作です');
+}
+
+/**
+ * AI ポートフォリオのプロンプトを組み立てる（**実名は 1 文字も入れない**）。
+ *
+ * 以前は TeacherApi.gs と Legacy.gs に同じ文面が 2 本あり、片方だけ仮名化を直すと
+ * もう片方から実名のまま Gemini へ流れる形だった。組み立てをここ 1 本にして、
+ * 「仮名化を通していない文字列を prompt に足す」ができないようにしている。
+ *
+ * @param {string[]} allNames 名簿にある表示名（仮名の対応表を作るため全員ぶん渡す）
+ * @param {string} targetName 対象児童の表示名
+ * @return {{prompt: string, reverse: Object}} reverse は返答を実名に戻すための対応表
+ */
+function corePortfolioPrompt_(allNames, targetName, pins, chats, reactions) {
+  const aliasMap = createNameAliases_(allNames, targetName);
+  let prompt = 'あなたは小学校の先生です。児童「対象児童」' +
+    'の「地図学習」での活動記録を分析し、温かいフィードバックを作成してください。\n' +
+    '※児童名は「対象児童」「児童A」のような仮名にしてあります。返事でも仮名のまま書いてください。\n\n';
+  prompt += '【ピンを刺した記録】\n';
+  pins.forEach(function (pin) {
+    prompt += '- 発見対象[' + redactForAi_(pin.title, aliasMap.aliases) + ']: メモ['
+      + (redactForAi_(pin.memo, aliasMap.aliases) || 'なし') + '] アイコン[' + redactForAi_(pin.color, aliasMap.aliases) + ']\n';
+  });
+  prompt += '\n【発言記録】\n';
+  chats.forEach(function (chat) { prompt += '- ' + redactForAi_(chat.message, aliasMap.aliases) + '\n'; });
+  prompt += '\n【友達へのリアクション回数】: ' + reactions.length + '回\n';
+  prompt += '\n以下の3項目で出力してください。\n1. 🔍 興味関心の傾向（どんなものに目を向けているか）\n' +
+    '2. ✨ 素晴らしい点（表現や友達への関わりの良さ）\n3. 💌 先生からのメッセージ（小学生に向けて優しい言葉で）';
+  return { prompt: prompt, reverse: aliasMap.reverse };
+}
+
+/** 組み立てたプロンプトを Gemini（正本 Gemini.gs / GigaGemini）へ送り、仮名を戻して返す */
+function coreRunPortfolio_(apiKey, built) {
+  // 通信・再試行・応答の取り出しは正本 Gemini.gs（GigaGemini）に任せる。
+  // ここに直書きしていた頃は再試行が無く、混み合う時間帯（429）に
+  // ポートフォリオ生成がそのまま失敗していた。API キーは正本側で
+  // x-goog-api-key ヘッダに載る（URL クエリには入れない）。
+  const aiText = GigaGemini.call({
+    apiKey: apiKey,
+    prompt: built.prompt,
+    model: 'gemini-2.5-flash',
+    systemInstruction: 'あなたは優しく、児童の良いところを見つけるのが得意な先生です。マークダウンを使用せず、プレーンテキストで見やすく出力してください。'
+  });
+  // 先生の画面では実名で読めるよう、仮名を表示名に戻してから返す。
+  return rehydrateAliases_(aiText, built.reverse);
 }
 
 /** 単元系データの取得（読みは各シート getValues 1 回） */

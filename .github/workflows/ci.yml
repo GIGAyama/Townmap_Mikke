@@ -3,13 +3,18 @@
 # =====================================================================
 # このリポジトリには長らくワークフローが1本も無く、.gs を壊したまま
 # push しても誰も気づけなかった（GAS は貼り付けて保存するまで構文誤りを
-# 教えてくれない）。まず次の2つを機械で見る:
+# 教えてくれない）。いまは次の4つを機械で見る:
 #
-#   1. syntax — .gs / docs 配下の .js が構文として壊れていないか
-#   2. drift  — Gemini.gs が正本（GIGAyama.github.io/standards/gas/）から
-#      ずれていないか。正本を直したのにこのコピーだけ古いまま、を防ぐ
+#   1. SW の版  — 配信物を変えたのに版を上げ忘れていないか
+#   2. syntax   — .gs / docs・tools・scripts 配下の .js が構文として壊れていないか
+#   3. App.html — <script type="text/babel"> の JSX が構文として通るか
+#                 （5,000 行近い JSX が、これまで何にも見られていなかった）
+#   4. tests    — 偽 GAS の上で .gs をそのまま動かし、認可とシートの扱いを見る
 #
-# App.html は GAS のテンプレート（<?!= ?> を含む）なので対象外。
+# 1〜4 は `npm run check` にまとめてある。deploy.yml（正本）が反映の前に
+# 探しにくる名前がこの `check` なので、**ここと本番反映で同じものが回る**。
+#
+# drift は「正本からコピーしたファイルが取り残されていないか」を別ジョブで見る。
 # =====================================================================
 name: ci
 
@@ -23,29 +28,18 @@ permissions:
   contents: read
 
 jobs:
-  syntax:
+  check:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - name: SW の版がずれていないか
-        run: node tools/build-sw.mjs --check
-      - name: .gs / .js の構文検査
-        run: |
-          set -e
-          fail=0
-          # node は .gs 拡張子を知らないので、.js として写してから見る
-          for f in *.gs; do
-            [ -e "$f" ] || continue
-            cp "$f" "/tmp/$(basename "$f").js"
-            node --check "/tmp/$(basename "$f").js" || fail=1
-          done
-          while IFS= read -r f; do
-            node --check "$f" || fail=1
-          done < <(find docs -name '*.js' 2>/dev/null)
-          exit $fail
+          cache: npm
+      - name: 依存を入れる
+        run: npm ci --ignore-scripts
+      - name: 点検（SW の版 / 構文 / App.html の JSX / テスト）
+        run: npm run check
 
   # 正本（GIGAyama.github.io/standards/）からコピーしたファイルが、
   # 正本の更新に取り残されていないかを見る。standards-map.json が対応表。

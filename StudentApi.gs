@@ -61,18 +61,29 @@ function stJoin(idToken, classCode, displayName, number) {
     withScriptLock_(function () {
       const sheet = ensureSheet_(ss, TABLES.MEMBERS);
       const data = sheet.getDataRange().getValues();
+      const H = headerMapFromRow_(data[0], TABLES.MEMBERS);
+      requireCols_(H, TABLES.MEMBERS, ['email', 'displayName', 'role', 'status', 'number', 'groupId', 'joinedAt']);
       const target = user.email;
       for (let i = 1; i < data.length; i++) {
-        if (String(data[i][0]).toLowerCase() === target) {
+        if (String(data[i][H.email]).toLowerCase() === target) {
           // 既存行の更新（active の行を pending に格下げしない）
-          const nextStatus = data[i][3] === 'active' ? 'active' : status;
-          sheet.getRange(i + 1, 1, 1, TABLES.MEMBERS.cols.length).setValues([[
-            target, name, data[i][2] || 'student', nextStatus, num, data[i][5] || '', data[i][6] || new Date()
-          ]]);
+          const patch = {
+            email: target,
+            displayName: safeCellText_(name),
+            status: data[i][H.status] === 'active' ? 'active' : status,
+            number: safeCellText_(num)
+          };
+          if (!data[i][H.role]) patch.role = 'student';
+          if (!data[i][H.joinedAt]) patch.joinedAt = new Date();
+          const row = setCells_(data[i].slice(), H, TABLES.MEMBERS, patch);
+          sheet.getRange(i + 1, 1, 1, row.length).setValues([row]);
           return;
         }
       }
-      sheet.appendRow([target, name, 'student', status, num, '', new Date()]);
+      sheet.appendRow(rowFor_(H, TABLES.MEMBERS, {
+        email: target, displayName: safeCellText_(name), role: 'student',
+        status: status, number: safeCellText_(num), groupId: '', joinedAt: new Date()
+      }, data[0].length));
     });
 
     if (status === 'active') {

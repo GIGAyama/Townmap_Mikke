@@ -46,7 +46,7 @@ function lgGetInitData() {
     if (users.length === 0) {
       // 最初にアクセスした人を先生として登録（旧版の挙動を維持）
       const newTeacher = { email: email, name: '先生', group_id: 'teacher', role: 'teacher', created_at: new Date().toLocaleString() };
-      ensureSheet_(ss, TABLES.USERS).appendRow([newTeacher.email, newTeacher.name, newTeacher.group_id, newTeacher.role, newTeacher.created_at]);
+      appendRowLocked_(ss, TABLES.USERS, newTeacher);
       myUser = newTeacher;
       users = [newTeacher];
     }
@@ -71,7 +71,15 @@ function lgGetInitData() {
 
 function lgSyncData(unitId) {
   try {
+    // 兄弟の lg* はすべて lgEmail_() で本人確認しているのに、ここだけ抜けていた。
+    // google.script.run は末尾 `_` の無い関数を誰でも直接呼べるので、
+    // 1 本の抜けで「名簿に載っていない人がクラスの記録を全部引ける」になる。
+    const email = lgEmail_();
     const ss = getSs_(null);
+    lgEnsureLegacySheets_(ss);
+    if (!lgIsMember_(ss, email)) {
+      throw new Error('NOT_MEMBER: このクラスの名簿に登録されていません。先生に確認してください');
+    }
     const units = getTableData_(ss, TABLES.UNITS);
     // 現在アクティブな単元を優先して返す（単元切替の自動追従用。StudentApi と同じ挙動）
     const activeUnit = formatUnit_(
@@ -87,9 +95,19 @@ function lgSyncData(unitId) {
   } catch (e) { return jsonErr_(e); }
 }
 
+function lgUserRow_(ss, email) {
+  return getTableData_(ss, TABLES.USERS)
+    .filter(function (x) { return String(x.email).toLowerCase() === email; })[0] || null;
+}
+
 function lgIsTeacher_(ss, email) {
-  const u = getTableData_(ss, TABLES.USERS).filter(function (x) { return String(x.email).toLowerCase() === email; })[0];
+  const u = lgUserRow_(ss, email);
   return !!u && u.role === 'teacher';
+}
+
+/** 名簿に載っているか。名簿が空（＝初期化前）のときは lgGetInitData 側で先生として登録される */
+function lgIsMember_(ss, email) {
+  return !!lgUserRow_(ss, email);
 }
 
 function lgExecuteAction(payloadJson) {
@@ -111,14 +129,20 @@ function lgExecuteAction(payloadJson) {
     if (!lgIsTeacher_(ss, email)) throw new Error('FORBIDDEN: この操作は先生だけができます');
 
     if (p.action === 'save_users') {
-      const userSheet = ensureSheet_(ss, TABLES.USERS);
       const existing = getTableData_(ss, TABLES.USERS).map(function (u) { return String(u.email).toLowerCase(); });
-      (p.users || []).forEach(function (u) {
+      (p.users || []).slice(0, 200).forEach(function (u) {
         if (!u || !u.email) return;
         const em = String(u.email).trim().toLowerCase();
-        if (existing.indexOf(em) === -1) {
-          userSheet.appendRow([em, String(u.name || '').trim(), String(u.group_id || '').trim(), 'student', new Date().toLocaleString()]);
-        }
+        if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em)) return;
+        if (existing.indexOf(em) >= 0) return;
+        existing.push(em);
+        appendRowLocked_(ss, TABLES.USERS, {
+          email: em,
+          name: safeCellText_(vStr_(u.name, 30, '氏名').trim()),
+          group_id: safeCellText_(vStr_(u.group_id, 20, '班').trim()),
+          role: 'student',
+          created_at: new Date()
+        });
       });
       return jsonOk_({});
     }
@@ -127,83 +151,14 @@ function lgExecuteAction(payloadJson) {
       return jsonOk_({});
     }
 
-    // 単元管理系は TeacherApi と同じ実装を経由させるため、疑似的に同処理を呼ぶ
+    // 単元管理系はすべて共有コア（Tenant.gs の coreUnitAction_）に任せる。
+    // 同じ処理を 2 本持っていたころは、片方だけ直して「先生の画面によって
+    // 挙動が違う」が起きていた。
     if (['save_unit', 'add_map', 'toggle_chat', 'toggle_stamp', 'update_custom_stamps'].indexOf(p.action) >= 0) {
-      return lgUnitAction_(ss, p);
+      return jsonOk_(coreUnitAction_(ss, p));
     }
     throw new Error('BAD_INPUT: 不明な操作です');
   } catch (e) { return jsonErr_(e); }
-}
-
-function lgUnitAction_(ss, p) {
-  if (p.action === 'save_unit') {
-    const unitId = vRecordId_(p.unit_id);
-    const initMap = [{ id: 'm_' + Date.now(), name: vStr_(p.map_name, 40, '地図名') || '基本マップ', url: vImageUrl_(p.map_url) }];
-    const initStamps = JSON.stringify(['📍', '🐛', '🌸', '🚗', '⚠️', '🏠', '❓', '💡']);
-    withScriptLock_(function () {
-      const unitSheet = ensureSheet_(ss, TABLES.UNITS);
-      const data = unitSheet.getDataRange().getValues();
-      for (let i = 1; i < data.length; i++) {
-        if (data[i][6] === true) unitSheet.getRange(i + 1, 7).setValue(false);
-      }
-      unitSheet.appendRow([unitId, vStr_(p.name, 60, '単元名'), JSON.stringify(initMap), true, true, initStamps, true, new Date()]);
-    });
-    return jsonOk_({ unitId: unitId });
-  }
-  if (p.action === 'add_map') {
-    withScriptLock_(function () {
-      const unitSheet = ensureSheet_(ss, TABLES.UNITS);
-      const data = unitSheet.getDataRange().getValues();
-      for (let i = 1; i < data.length; i++) {
-        if (data[i][0] === p.unit_id) {
-          let maps = [];
-          try { maps = JSON.parse(data[i][2] || '[]'); } catch (e) { maps = []; }
-          maps.push({ id: vRecordId_(p.map_id), name: vStr_(p.name, 40, '地図名'), url: vImageUrl_(p.map_url) });
-          unitSheet.getRange(i + 1, 3).setValue(JSON.stringify(maps));
-          break;
-        }
-      }
-      if (p.copy_from_map_id) {
-        const pinSheet = ensureSheet_(ss, TABLES.PINS);
-        const pinData = pinSheet.getDataRange().getValues();
-        const newPins = [];
-        for (let i = 1; i < pinData.length; i++) {
-          if (pinData[i][1] === p.unit_id && pinData[i][2] === p.copy_from_map_id) {
-            newPins.push([Utilities.getUuid(), p.unit_id, p.map_id, pinData[i][3], pinData[i][4],
-              pinData[i][5], pinData[i][6], pinData[i][7], pinData[i][8], pinData[i][9], new Date()]);
-          }
-        }
-        if (newPins.length > 0) {
-          pinSheet.getRange(pinSheet.getLastRow() + 1, 1, newPins.length, newPins[0].length).setValues(newPins);
-        }
-      }
-    });
-    return jsonOk_({});
-  }
-  if (p.action === 'toggle_chat' || p.action === 'toggle_stamp') {
-    const col = p.action === 'toggle_chat' ? 4 : 5;
-    const val = p.action === 'toggle_chat' ? p.chat_enabled === true : p.stamp_enabled === true;
-    withScriptLock_(function () {
-      const unitSheet = ensureSheet_(ss, TABLES.UNITS);
-      const data = unitSheet.getDataRange().getValues();
-      for (let i = 1; i < data.length; i++) {
-        if (data[i][0] === p.unit_id) { unitSheet.getRange(i + 1, col).setValue(val); break; }
-      }
-    });
-    return jsonOk_({});
-  }
-  if (p.action === 'update_custom_stamps') {
-    const stamps = (p.custom_stamps || []).slice(0, 24).map(function (s) { return vStr_(s, 8, 'スタンプ'); });
-    withScriptLock_(function () {
-      const unitSheet = ensureSheet_(ss, TABLES.UNITS);
-      const data = unitSheet.getDataRange().getValues();
-      for (let i = 1; i < data.length; i++) {
-        if (data[i][0] === p.unit_id) { unitSheet.getRange(i + 1, 6).setValue(JSON.stringify(stamps)); break; }
-      }
-    });
-    return jsonOk_({});
-  }
-  throw new Error('BAD_INPUT: 不明な操作です');
 }
 
 function lgGenerateAIPortfolio(payloadJson) {
@@ -226,35 +181,12 @@ function lgGenerateAIPortfolio(payloadJson) {
     }
 
     // 新しい教員 API と同じく、AI には実名を渡さず仮名（対象児童・児童A…）で送る。
-    const aliasMap = createNameAliases_(
+    // 組み立ては corePortfolioPrompt_（Tenant.gs）に 1 本化してある。
+    const built = corePortfolioPrompt_(
       getTableData_(ss, TABLES.USERS).map(function (u) { return u.name; }),
-      user ? user.name : ''
-    );
+      user ? user.name : '', pins, chats, reactions);
 
-    let prompt = 'あなたは小学校の先生です。児童「対象児童」' +
-      'の「地図学習」での活動記録を分析し、温かいフィードバックを作成してください。\n' +
-      '※児童名は「対象児童」「児童A」のような仮名にしてあります。返事でも仮名のまま書いてください。\n\n【ピンを刺した記録】\n';
-    pins.forEach(function (pin) {
-      prompt += '- 発見対象[' + redactForAi_(pin.title, aliasMap.aliases) + ']: メモ['
-        + (redactForAi_(pin.memo, aliasMap.aliases) || 'なし') + '] アイコン[' + pin.color + ']\n';
-    });
-    prompt += '\n【発言記録】\n';
-    chats.forEach(function (chat) { prompt += '- ' + redactForAi_(chat.message, aliasMap.aliases) + '\n'; });
-    prompt += '\n【友達へのリアクション回数】: ' + reactions.length + '回\n';
-    prompt += '\n以下の3項目で出力してください。\n1. 🔍 興味関心の傾向（どんなものに目を向けているか）\n2. ✨ 素晴らしい点（表現や友達への関わりの良さ）\n3. 💌 先生からのメッセージ（小学生に向けて優しい言葉で）';
-
-    // 通信・再試行・応答の取り出しは正本 Gemini.gs（GigaGemini）に任せる。
-    // ここに直書きしていた頃は再試行が無く、混み合う時間帯（429）に
-    // ポートフォリオ生成がそのまま失敗していた。API キーは正本側で
-    // x-goog-api-key ヘッダに載る（URL クエリには入れない）。
-    const aiText = GigaGemini.call({
-      apiKey: apiKey,
-      prompt: prompt,
-      model: 'gemini-2.5-flash',
-      systemInstruction: 'あなたは優しく、児童の良いところを見つけるのが得意な先生です。マークダウンを使用せず、プレーンテキストで見やすく出力してください。'
-    });
-    // 先生の画面では実名で読めるよう、仮名を名簿の名前に戻してから返す。
-    return jsonOk_({ portfolio: rehydrateAliases_(aiText, aliasMap.reverse) });
+    return jsonOk_({ portfolio: coreRunPortfolio_(apiKey, built) });
   } catch (e) { return jsonErr_(e); }
 }
 
