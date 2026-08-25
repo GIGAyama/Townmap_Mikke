@@ -250,6 +250,68 @@ test('AI 生成は先生だけ', () => {
   assert.equal(res.code, 'FORBIDDEN');
 });
 
+test('bound の学級では、旧版の入口（lg*）から先生になれない', () => {
+  // google.script.run は末尾 `_` の無い関数を誰でも呼べる。児童がコンソールから
+  // lgGetInitData() を呼ぶと、以前は
+  //   Users_名簿 が作られる → 「名簿が空なら最初の人を先生」で児童が先生になる
+  //   → lgExecuteAction で単元を作れる
+  // という経路で、Bound.gs の ownerEmail の判定を丸ごと迂回できた。
+  const ss = container({ members: activeStudent });
+  const { ctx } = loadGas({ ss, activeUser: STUDENT, effectiveUser: TEACHER });
+
+  const init = parse(ctx.lgGetInitData());
+  assert.equal(init.success, false, '旧版の入口が通ってしまう');
+  assert.equal(init.code, 'FORBIDDEN');
+
+  const act = parse(ctx.lgExecuteAction(JSON.stringify({
+    action: 'save_unit', unit_id: 'unt_000099', name: 'のっとり', map_name: 'x', map_url: ''
+  })));
+  assert.equal(act.success, false);
+  assert.equal(act.code, 'FORBIDDEN');
+
+  // 単元は増えていない（学級のデータに 1 行も触れていない）
+  assert.equal(ctx.getTableData_(ss, ctx.TABLES.UNITS).length, 1);
+  // Users_名簿 が作られてもいない
+  assert.equal(ss.getSheetByName('Users_名簿'), null);
+});
+
+test('旧版で動いている学級（Users_名簿 に行がある）は、これまでどおり通る', () => {
+  const ss = spreadsheet([
+    sheet('Users_名簿', ['email', 'name', 'group_id', 'role', 'created_at'],
+      [[TEACHER, '先生', 'teacher', 'teacher', '2026-01-01'],
+       [STUDENT, 'あゆみ', '1班', 'student', '2026-01-01']]),
+    sheet('Units_単元', UNITS, [['unt_000001', 'まちたんけん', '[]', true, true, '[]', true, '2026-01-01']]),
+    sheet('Pins_ピン', PINS, []), sheet('Chats_チャット', CHATS, []),
+    sheet('Reactions_反応', REACTIONS, []), sheet('Images_画像', IMAGES, []),
+    sheet('Settings', ['key', 'value'], [])
+  ]);
+  const { ctx } = loadGas({ ss, activeUser: STUDENT, effectiveUser: STUDENT });
+  assert.equal(ctx.boundModeFor_(ss), 'legacy');
+  const init = parse(ctx.lgGetInitData());
+  assert.equal(init.success, true, JSON.stringify(init));
+  assert.equal(init.user.role, 'student');
+});
+
+test('空のファイルでは、旧版の入口から「最初の人が先生」にならない', () => {
+  // Users_名簿 が空なら boundModeFor_ は 'bound' を返すので、lg* はそもそも通らない。
+  const ss = container({ settings: [] });
+  const { ctx } = loadGas({ ss, activeUser: STUDENT, effectiveUser: STUDENT });
+  const init = parse(ctx.lgGetInitData());
+  assert.equal(init.success, false);
+  assert.equal(init.code, 'FORBIDDEN');
+});
+
+test('authorizeApp は、エディタ以外から呼ぶと先生のメールを返さない', () => {
+  const ss = container({ members: activeStudent });
+  // 児童のブラウザから: active(児童) !== effective(先生)
+  const asStudent = loadGas({ ss, activeUser: STUDENT, effectiveUser: TEACHER }).ctx;
+  assert.throws(() => asStudent.authorizeApp(), /FORBIDDEN/);
+
+  // GAS エディタから: active === effective
+  const asEditor = loadGas({ ss, activeUser: TEACHER, effectiveUser: TEACHER }).ctx;
+  assert.match(asEditor.authorizeApp(), /実行者: /);
+});
+
 test('公開エンドポイントに、認可の無いものが増えていない', () => {
   // 末尾 `_` の無いトップレベル関数は google.script.run から誰でも呼べる。
   // 増やしたときに「認可を書いたか」を必ず考えるよう、一覧を固定しておく。

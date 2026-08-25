@@ -65,6 +65,16 @@ const PROP_KEYS = {
  * 戻り値で 3 スコープが実際に機能しているかを確認できる。
  */
 function authorizeApp() {
+  // google.script.run は末尾 `_` の無い関数を誰でも呼べる。この関数は
+  // GAS エディタから人が動かすためのものなので、**開いている本人と実行者が
+  // 同じとき（＝エディタ文脈）だけ**通す。これが無いと、児童がブラウザから
+  // 呼ぶだけで先生（デプロイした人）のメールアドレスが返る。
+  const active = String(Session.getActiveUser().getEmail() || '').toLowerCase();
+  const effective = String(Session.getEffectiveUser().getEmail() || '').toLowerCase();
+  if (!active || active !== effective) {
+    throw new Error('FORBIDDEN: この関数は Apps Script エディタから実行してください');
+  }
+
   const results = [];
   results.push('実行者: ' + Session.getEffectiveUser().getEmail());  // userinfo.email
   const res = UrlFetchApp.fetch('https://oauth2.googleapis.com/tokeninfo?id_token=check',

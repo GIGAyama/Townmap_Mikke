@@ -18,6 +18,32 @@ function lgEmail_() {
   return String(email).toLowerCase();
 }
 
+/**
+ * lg* を通してよいのは「旧バインド型の学級」だけ。
+ *
+ * ⚠️ ここが無いと、コンテナバインド版（Bound.gs）の学級で穴になる。
+ *    google.script.run は末尾 `_` の無い関数を誰でも直接呼べるので、児童が
+ *    ブラウザのコンソールから lgGetInitData() を呼ぶと、
+ *      1. Users_名簿 シートが作られ
+ *      2. 「名簿が空なら最初の人を先生にする」で **その児童が先生として登録され**
+ *      3. そのまま lgExecuteAction で単元の作成・削除ができる
+ *    という経路が通る。Bound.gs の ownerEmail の判定を丸ごと迂回する。
+ *    （実測: この関門を外すと、児童が学級の単元を作れることをテストで再現できる）
+ *
+ * 判定は Main.gs の boundModeFor_ に合わせる。中身がまだ何も無いファイルは
+ * 'bound' 扱いなので、**空のシートから lg* で先生を作ることはできない**。
+ * 旧バインド型として動いている学級（Users_名簿 に行がある）だけが通る。
+ */
+function assertLegacyContainer_() {
+  let ss = null;
+  try { ss = SpreadsheetApp.getActiveSpreadsheet(); } catch (e) { ss = null; }
+  if (!ss || boundModeFor_(ss) !== 'legacy') {
+    throw new Error('FORBIDDEN: この入口はこの学級では使えません' +
+      '（貼り付けで入れた旧版の学級のためのものです）');
+  }
+  return ss;
+}
+
 function lgEnsureLegacySheets_(ss) {
   ensureSheet_(ss, TABLES.USERS);
   ensureSheet_(ss, TABLES.UNITS);
@@ -36,8 +62,8 @@ function lgApiKey_(ss) {
 
 function lgGetInitData() {
   try {
+    const ss = assertLegacyContainer_();
     const email = lgEmail_();
-    const ss = getSs_(null);
     lgEnsureLegacySheets_(ss);
 
     let users = getTableData_(ss, TABLES.USERS);
@@ -74,8 +100,8 @@ function lgSyncData(unitId) {
     // 兄弟の lg* はすべて lgEmail_() で本人確認しているのに、ここだけ抜けていた。
     // google.script.run は末尾 `_` の無い関数を誰でも直接呼べるので、
     // 1 本の抜けで「名簿に載っていない人がクラスの記録を全部引ける」になる。
+    const ss = assertLegacyContainer_();
     const email = lgEmail_();
-    const ss = getSs_(null);
     lgEnsureLegacySheets_(ss);
     if (!lgIsMember_(ss, email)) {
       throw new Error('NOT_MEMBER: このクラスの名簿に登録されていません。先生に確認してください');
@@ -112,8 +138,8 @@ function lgIsMember_(ss, email) {
 
 function lgExecuteAction(payloadJson) {
   try {
+    const ss = assertLegacyContainer_();
     const email = lgEmail_();
-    const ss = getSs_(null);
     const p = JSON.parse(payloadJson);
 
     if (p.action === 'save_pin') return jsonOk_(coreSavePin_(ss, email, p));
@@ -163,8 +189,8 @@ function lgExecuteAction(payloadJson) {
 
 function lgGenerateAIPortfolio(payloadJson) {
   try {
+    const ss = assertLegacyContainer_();
     const email = lgEmail_();
-    const ss = getSs_(null);
     if (!lgIsTeacher_(ss, email)) throw new Error('FORBIDDEN: この操作は先生だけができます');
     const p = JSON.parse(payloadJson);
     const apiKey = lgApiKey_(ss);
@@ -192,16 +218,16 @@ function lgGenerateAIPortfolio(payloadJson) {
 
 function lgUploadImage(dataUrl) {
   try {
+    const ss = assertLegacyContainer_();
     const email = lgEmail_();
-    const ss = getSs_(null);
     return jsonOk_({ imageRef: storeImage_(ss, email, dataUrl) });
   } catch (e) { return jsonErr_(e); }
 }
 
 function lgGetImage(imageRef) {
   try {
+    const ss = assertLegacyContainer_();
     lgEmail_();
-    const ss = getSs_(null);
     return jsonOk_({ dataUrl: loadImage_(ss, imageRef) });
   } catch (e) { return jsonErr_(e); }
 }
