@@ -21,8 +21,7 @@ export const ROOT = path.resolve(HERE, '..', '..');
 
 /** 読み込む .gs の既定の並び（定数の依存順に並べる） */
 export const DEFAULT_SOURCES = [
-  'Main.gs', 'Db.gs', 'Schema.gs', 'Registry.gs', 'Auth.gs',
-  'Tenant.gs', 'StudentApi.gs', 'TeacherApi.gs', 'Bound.gs', 'Legacy.gs'
+  'Main.gs', 'Db.gs', 'Schema.gs', 'Tenant.gs', 'Bound.gs'
 ];
 
 // ────────────────────────────────────────────────────────────────
@@ -246,7 +245,6 @@ export function loadGas(opts = {}) {
     'globalThis.TABLES = TABLES;' +
     'globalThis.CONFIG = CONFIG;' +
     'globalThis.CLASS_TABLE_KEYS = CLASS_TABLE_KEYS;' +
-    'globalThis.PROP_KEYS = PROP_KEYS;' +
     'globalThis.BOUND_KEYS = BOUND_KEYS;',
     sandbox, { filename: '__bridge.js' });
 

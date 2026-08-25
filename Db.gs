@@ -6,7 +6,7 @@
  *   - email 列には「検証済みの email」だけを書く（クライアント申告は信用しない）
  *   - created_at はサーバー時刻
  *
- * 児童の個人設定は UserProperties に置けない（デプロイ S の実行者はアプリアカウントのため、
+ * 児童の個人設定は UserProperties に置けない（「自分として実行」では実行者が先生になるため、
  * getUserProperties() は全児童で同一ストアになってしまう）。児童ごとの状態は
  * Members シート（email キー）に保存する。
  *
@@ -25,10 +25,7 @@
  */
 
 const TABLES = {
-  // 旧版互換（legacy モードのみで使用）
-  USERS: { name: 'Users_名簿', cols: ['email', 'name', 'group_id', 'role', 'created_at'] },
-
-  // ── 管理シート（新規クラスで必ず作成）──
+  // ── 管理シート（コピーしたファイルで必ず作成）──
   MEMBERS: { name: 'Members', cols: ['email', 'displayName', 'role', 'status', 'number', 'groupId', 'joinedAt'] },
   SETTINGS: { name: 'Settings', cols: ['key', 'value'] },
   META: { name: '_Meta', cols: ['key', 'value'] },
@@ -173,7 +170,7 @@ function writeHeaderRow_(sheet, table) {
     .setBackground('#41B3A3').setFontColor('white').setFontWeight('bold');
 }
 
-/** クラス DB として使うシートの一覧（旧 Users_名簿 は含めない） */
+/** クラス DB として使うシートの一覧 */
 const CLASS_TABLE_KEYS = ['MEMBERS', 'SETTINGS', 'META', 'UNITS', 'PINS', 'CHATS', 'REACTIONS', 'IMAGES'];
 
 /** 新規クラス DB の初期化。既定シートの掃除と全シート作成 */
@@ -188,29 +185,62 @@ function initializeNewDatabase_(ss) {
   });
 }
 
-/** 既存シートのクラス化（tpRegisterExisting）: 不足シートの補完と旧名簿の移行 */
-function ensureClassSheets_(ss) {
-  initializeNewDatabase_(ss);
-  // 旧版の Users_名簿 があれば Members に移行（Members が空の場合のみ）
-  const usersSheet = ss.getSheetByName(TABLES.USERS.name);
-  const membersSheet = ss.getSheetByName(TABLES.MEMBERS.name);
-  if (usersSheet && membersSheet.getLastRow() < 2 && usersSheet.getLastRow() >= 2) {
-    const users = getTableData_(ss, TABLES.USERS);
-    const H = headerMap_(membersSheet, TABLES.MEMBERS);
-    const now = new Date();
-    const out = users.filter(function (u) { return u.email; }).map(function (u) {
-      return rowFor_(H, TABLES.MEMBERS, {
-        email: String(u.email).toLowerCase().trim(),
-        displayName: safeCellText_(u.name || ''),
-        role: u.role === 'teacher' ? 'teacher' : 'student',
-        status: 'active',
-        number: '',
-        groupId: safeCellText_(u.group_id || ''),
-        joinedAt: now
-      }, TABLES.MEMBERS.cols.length);
-    });
-    if (out.length) membersSheet.getRange(2, 1, out.length, out[0].length).setValues(out);
-  }
+// ────────────────────────────────────────────────────────────────
+// 名簿（Members）の書き込み
+// ────────────────────────────────────────────────────────────────
+
+/**
+ * 名簿の 1 人を作る／直す。email をキーに突き合わせる。
+ * 渡さなかった項目は既存の値をそのまま残す（他の列も触らない）。
+ * **呼ぶ側が「先生であること」を確かめてから呼ぶこと。**
+ */
+function upsertMember_(ss, m) {
+  withScriptLock_(function () {
+    const sheet = ensureSheet_(ss, TABLES.MEMBERS);
+    const data = sheet.getDataRange().getValues();
+    const H = headerMapFromRow_(data[0], TABLES.MEMBERS);
+    requireCols_(H, TABLES.MEMBERS, ['email', 'displayName', 'role', 'status', 'number', 'groupId', 'joinedAt']);
+    const target = String(m.email).toLowerCase();
+    for (let i = 1; i < data.length; i++) {
+      if (String(data[i][H.email]).toLowerCase() === target) {
+        const patch = { email: target };
+        if (m.displayName !== undefined) patch.displayName = safeCellText_(m.displayName);
+        if (m.role) patch.role = m.role;
+        if (m.status) patch.status = m.status;
+        if (m.number !== undefined) patch.number = safeCellText_(m.number);
+        if (m.groupId !== undefined) patch.groupId = safeCellText_(m.groupId);
+        if (!data[i][H.joinedAt]) patch.joinedAt = new Date();
+        const row = setCells_(data[i].slice(), H, TABLES.MEMBERS, patch);
+        sheet.getRange(i + 1, 1, 1, row.length).setValues([row]);
+        return;
+      }
+    }
+    sheet.appendRow(rowFor_(H, TABLES.MEMBERS, {
+      email: target,
+      displayName: safeCellText_(m.displayName || ''),
+      role: m.role || 'student',
+      status: m.status || 'active',
+      number: safeCellText_(m.number || ''),
+      groupId: safeCellText_(m.groupId || ''),
+      joinedAt: new Date()
+    }, data[0].length));
+  });
+}
+
+/** 名簿の status をまとめて変える（承認・名簿から外す）。行は消さない */
+function setMemberStatus_(ss, emails, status) {
+  const targets = emails.map(function (e) { return String(e).toLowerCase(); });
+  withScriptLock_(function () {
+    const sheet = ensureSheet_(ss, TABLES.MEMBERS);
+    const data = sheet.getDataRange().getValues();
+    const H = headerMapFromRow_(data[0], TABLES.MEMBERS);
+    requireCols_(H, TABLES.MEMBERS, ['email', 'status']);
+    for (let i = 1; i < data.length; i++) {
+      if (targets.indexOf(String(data[i][H.email]).toLowerCase()) >= 0) {
+        sheet.getRange(i + 1, H.status + 1).setValue(status);
+      }
+    }
+  });
 }
 
 // ────────────────────────────────────────────────────────────────
@@ -273,9 +303,9 @@ function getTableData_(ss, table) {
 
 /**
  * 追記の同時書き込み対策。
- * デプロイ S は全児童が同一実行者（アプリアカウント）なので、ScriptLock は
- * 全クラス横断の直列化になる。ロック保持区間は「appendRow 1 回」程度に最小化し、
- * トークン検証や読み取りはロック外で行うこと。
+ * 「自分として実行」では全児童が同一実行者（先生）なので、ScriptLock は学級全体の
+ * 直列化になる。ロック保持区間は「appendRow 1 回」程度に最小化し、
+ * 読み取りはロック外で行うこと。
  * 取得失敗は LOCK_BUSY とし、フロント側で指数バックオフ 3 回の自動リトライを行う。
  */
 function withScriptLock_(fn) {

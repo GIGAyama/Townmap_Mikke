@@ -1,41 +1,14 @@
 /**
- * Tenant.gs — テナント（クラス）解決とアクセス制御
+ * Tenant.gs — アクセス制御と、記録まわりの共通コア
  *
  * 認可の鉄則: すべての API はサーバー側で
- *   ① トークン検証（S）/ Session（T） → ② クラス解決 → ③ 名簿照合（status=active）
- *   → ④ 役割チェック → ⑤ 行所有者チェック
- * の順にガードする。フロントの出し分けは防御とみなさない。
+ *   ① 本人確認（Session.getActiveUser）→ ② 名簿照合（status=active）
+ *   → ③ 役割チェック → ④ 行所有者チェック
+ * の順にガードする（入口は Bound.gs）。フロントの出し分けは防御とみなさない。
  *
- * スプレッドシート ID は児童側（URL・API レスポンス・HTML）に一切露出しない。
- * 児童向けレスポンスでは email も露出せず、匿名 ID（uid = sha256(email) 先頭12桁）に置換する。
+ * 児童向けレスポンスでは email を露出せず、匿名 ID（uid = sha256(email) 先頭12桁）に
+ * 置換する。児童の画面に他の子のメールアドレスを出さないため。
  */
-
-/** クラス解決: レジストリ → openById。開けない場合は復旧手順つきの日本語エラー */
-function openClassSs_(code) {
-  const rec = requireClassRecord_(code);
-  try {
-    return SpreadsheetApp.openById(rec.spreadsheetId);
-  } catch (e) {
-    // 教員が共有を外した / シートを削除した場合にここへ来る
-    throw new Error('CLASS_UNAVAILABLE: クラスのデータベースにアクセスできません。先生に確認してください。' +
-      '（先生へ: クラスのスプレッドシートが削除されていないか、共有設定で ' +
-      getSetting_(PROP_KEYS.APP_ACCOUNT, false) + ' が「編集者」のままかを確認し、' +
-      '外れている場合は共有し直してください）');
-  }
-}
-
-/**
- * スプレッドシート取得の一本化。
- *  1. getActiveSpreadsheet() が取れればそれを返す（旧バインド型デプロイ互換）
- *  2. Web アプリ文脈では classCode から openClassSs_()
- */
-function getSs_(classCode) {
-  let active = null;
-  try { active = SpreadsheetApp.getActiveSpreadsheet(); } catch (e) { active = null; }
-  if (active) return active;
-  if (classCode) return openClassSs_(normalizeClassCode_(classCode));
-  throw new Error('CLASS_NOT_FOUND: クラスを特定できません。共通 URL（クラス用リンク）から開き直してください');
-}
 
 /** 児童側に email を出さないための匿名 ID */
 function uidOf_(email) {
@@ -69,20 +42,6 @@ function assertTeacher_(ss, email) {
     throw new Error('FORBIDDEN: この操作は先生だけができます');
   }
   return m;
-}
-
-/**
- * 児童 API 共通ガード（5 段ガードの ①〜③）。
- * 戻り値 { user, rec, ss, member } を各 API が使う。
- * ロック外で行うこと（トークン検証・シート読み取りはロック不要）。
- */
-function guardStudent_(idToken, classCode) {
-  const user = verifyIdToken_(idToken);            // ① トークン検証
-  const code = normalizeClassCode_(classCode);
-  const rec = requireClassRecord_(code);           // ② クラス解決
-  const ss = openClassSs_(code);
-  const member = assertActiveMember_(ss, user.email); // ③ 名簿照合
-  return { user: user, rec: rec, ss: ss, code: code, member: member };
 }
 
 // ────────────────────────────────────────────────────────────────

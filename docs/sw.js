@@ -30,13 +30,12 @@ const CACHE_PREFIX = 'mikke-shell-';
 //    手書きだったころは「リリースごとに必ず上げる」が人の仕事で、
 //    2026-08-21 に12リポジトリで同時に上げ忘れる事故が起きた。上げ忘れると
 //    古いシェルのキャッシュが掃除されず、直した画面が児童の端末に届かない。
-const APP_VERSION = 'v75c77543'; /* __APP_VERSION__ */
+const APP_VERSION = 'v8573b186'; /* __APP_VERSION__ */
 const CACHE_NAME = CACHE_PREFIX + APP_VERSION;
 
-// './'（案内ページ）と './class.html'（アプリのシェル）は別のページ。
-// 児童が開くのは class.html のほうなので、こちらを必ず先読みに入れる。
+// このサイトは導入の案内ページだけになった（アプリは先生ごとの /exec で動く）。
 const SHELL_ASSETS = [
-  './', './index.html', './class.html', './config.js', './manifest.webmanifest',
+  './', './index.html', './manifest.webmanifest',
   './icon.svg', './icon-192.png', './icon-512.png',
   './icon-maskable-192.png', './icon-maskable-512.png',
   './apple-touch-icon.png', './offline.html',
@@ -69,9 +68,6 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url);
   // 同一オリジンのシェル資産のみ扱う。クロスオリジン（GAS / gsi 等）はブラウザに素通しする
   if (event.request.method !== 'GET' || url.origin !== self.location.origin) return;
-  // 診断ページは常に最新をネットワークから取得する（キャッシュ対象外）
-  if (url.pathname.endsWith('/diag.html')) return;
-
   // 画面遷移は network-first。更新をすぐ届け、圏外ならキャッシュ済みの
   // シェルを返し、それも無ければ offline.html を出す（「壊れた」と思わせない）。
   if (event.request.mode === 'navigate') {
@@ -79,10 +75,8 @@ self.addEventListener('fetch', (event) => {
       try {
         return await fetch(event.request);
       } catch (e) {
-        // 開こうとしたページそのものを先に返す（?c=… が付くので ignoreSearch）。
-        // 案内ページとアプリのシェルは別のページなので、index.html 決め打ちにすると
-        // 児童が圏外で開いたときに案内ページが出てしまう。
         return (await caches.match(event.request, { ignoreSearch: true }))
+          || (await caches.match('./index.html'))
           || (await caches.match('./offline.html'))
           || Response.error();
       }
