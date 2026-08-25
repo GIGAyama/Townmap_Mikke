@@ -35,23 +35,32 @@ function upsertMember_(ss, m) {
   withScriptLock_(function () {
     const sheet = ensureSheet_(ss, TABLES.MEMBERS);
     const data = sheet.getDataRange().getValues();
+    const H = headerMapFromRow_(data[0], TABLES.MEMBERS);
+    requireCols_(H, TABLES.MEMBERS, ['email', 'displayName', 'role', 'status', 'number', 'groupId', 'joinedAt']);
     const target = String(m.email).toLowerCase();
     for (let i = 1; i < data.length; i++) {
-      if (String(data[i][0]).toLowerCase() === target) {
-        sheet.getRange(i + 1, 1, 1, TABLES.MEMBERS.cols.length).setValues([[
-          target,
-          m.displayName !== undefined ? m.displayName : data[i][1],
-          m.role || data[i][2] || 'student',
-          m.status || data[i][3] || 'active',
-          m.number !== undefined ? m.number : data[i][4],
-          m.groupId !== undefined ? m.groupId : data[i][5],
-          data[i][6] || new Date()
-        ]]);
+      if (String(data[i][H.email]).toLowerCase() === target) {
+        const patch = { email: target };
+        if (m.displayName !== undefined) patch.displayName = safeCellText_(m.displayName);
+        if (m.role) patch.role = m.role;
+        if (m.status) patch.status = m.status;
+        if (m.number !== undefined) patch.number = safeCellText_(m.number);
+        if (m.groupId !== undefined) patch.groupId = safeCellText_(m.groupId);
+        if (!data[i][H.joinedAt]) patch.joinedAt = new Date();
+        const row = setCells_(data[i].slice(), H, TABLES.MEMBERS, patch);
+        sheet.getRange(i + 1, 1, 1, row.length).setValues([row]);
         return;
       }
     }
-    sheet.appendRow([target, m.displayName || '', m.role || 'student', m.status || 'active',
-      m.number || '', m.groupId || '', new Date()]);
+    sheet.appendRow(rowFor_(H, TABLES.MEMBERS, {
+      email: target,
+      displayName: safeCellText_(m.displayName || ''),
+      role: m.role || 'student',
+      status: m.status || 'active',
+      number: safeCellText_(m.number || ''),
+      groupId: safeCellText_(m.groupId || ''),
+      joinedAt: new Date()
+    }, data[0].length));
   });
 }
 
@@ -60,9 +69,11 @@ function setMemberStatus_(ss, emails, status) {
   withScriptLock_(function () {
     const sheet = ensureSheet_(ss, TABLES.MEMBERS);
     const data = sheet.getDataRange().getValues();
+    const H = headerMapFromRow_(data[0], TABLES.MEMBERS);
+    requireCols_(H, TABLES.MEMBERS, ['email', 'status']);
     for (let i = 1; i < data.length; i++) {
-      if (targets.indexOf(String(data[i][0]).toLowerCase()) >= 0) {
-        sheet.getRange(i + 1, 4).setValue(status);
+      if (targets.indexOf(String(data[i][H.email]).toLowerCase()) >= 0) {
+        sheet.getRange(i + 1, H.status + 1).setValue(status);
       }
     }
   });
@@ -434,75 +445,8 @@ function tpExecuteAction(classCode, payloadJson) {
       // 教員は誰の記録でも削除できる（ownOnly=false）
       return jsonOk_(coreDeleteRecord_(ss, email, p.pin_id || p.chat_id, false));
     }
-    if (p.action === 'save_unit') {
-      const unitId = vRecordId_(p.unit_id);
-      const unitName = vStr_(p.name, 60, '単元名');
-      const initMap = [{ id: 'm_' + Date.now(), name: vStr_(p.map_name, 40, '地図名') || '基本マップ', url: vImageUrl_(p.map_url) }];
-      const initStamps = JSON.stringify(['📍', '🐛', '🌸', '🚗', '⚠️', '🏠', '❓', '💡']);
-      withScriptLock_(function () {
-        const unitSheet = ensureSheet_(ss, TABLES.UNITS);
-        const data = unitSheet.getDataRange().getValues();
-        for (let i = 1; i < data.length; i++) {
-          if (data[i][6] === true) unitSheet.getRange(i + 1, 7).setValue(false);
-        }
-        unitSheet.appendRow([unitId, unitName, JSON.stringify(initMap), true, true, initStamps, true, new Date()]);
-      });
-      return jsonOk_({ unitId: unitId });
-    }
-    if (p.action === 'add_map') {
-      const mapUrl = vImageUrl_(p.map_url);
-      const mapName = vStr_(p.name, 40, '地図名');
-      withScriptLock_(function () {
-        const unitSheet = ensureSheet_(ss, TABLES.UNITS);
-        const data = unitSheet.getDataRange().getValues();
-        for (let i = 1; i < data.length; i++) {
-          if (data[i][0] === p.unit_id) {
-            let maps = [];
-            try { maps = JSON.parse(data[i][2] || '[]'); } catch (e) { maps = []; }
-            maps.push({ id: vRecordId_(p.map_id), name: mapName, url: mapUrl });
-            unitSheet.getRange(i + 1, 3).setValue(JSON.stringify(maps));
-            break;
-          }
-        }
-        if (p.copy_from_map_id) {
-          const pinSheet = ensureSheet_(ss, TABLES.PINS);
-          const pinData = pinSheet.getDataRange().getValues();
-          const newPins = [];
-          for (let i = 1; i < pinData.length; i++) {
-            if (pinData[i][1] === p.unit_id && pinData[i][2] === p.copy_from_map_id) {
-              newPins.push([Utilities.getUuid(), p.unit_id, p.map_id, pinData[i][3], pinData[i][4],
-                pinData[i][5], pinData[i][6], pinData[i][7], pinData[i][8], pinData[i][9], new Date()]);
-            }
-          }
-          if (newPins.length > 0) {
-            pinSheet.getRange(pinSheet.getLastRow() + 1, 1, newPins.length, newPins[0].length).setValues(newPins);
-          }
-        }
-      });
-      return jsonOk_({});
-    }
-    if (p.action === 'toggle_chat' || p.action === 'toggle_stamp') {
-      const col = p.action === 'toggle_chat' ? 4 : 5;
-      const val = p.action === 'toggle_chat' ? p.chat_enabled === true : p.stamp_enabled === true;
-      withScriptLock_(function () {
-        const unitSheet = ensureSheet_(ss, TABLES.UNITS);
-        const data = unitSheet.getDataRange().getValues();
-        for (let i = 1; i < data.length; i++) {
-          if (data[i][0] === p.unit_id) { unitSheet.getRange(i + 1, col).setValue(val); break; }
-        }
-      });
-      return jsonOk_({});
-    }
-    if (p.action === 'update_custom_stamps') {
-      const stamps = (p.custom_stamps || []).slice(0, 24).map(function (s) { return vStr_(s, 8, 'スタンプ'); });
-      withScriptLock_(function () {
-        const unitSheet = ensureSheet_(ss, TABLES.UNITS);
-        const data = unitSheet.getDataRange().getValues();
-        for (let i = 1; i < data.length; i++) {
-          if (data[i][0] === p.unit_id) { unitSheet.getRange(i + 1, 6).setValue(JSON.stringify(stamps)); break; }
-        }
-      });
-      return jsonOk_({});
+    if (['save_unit', 'add_map', 'toggle_chat', 'toggle_stamp', 'update_custom_stamps'].indexOf(p.action) >= 0) {
+      return jsonOk_(coreUnitAction_(ss, p));
     }
     if (p.action === 'save_users') {
       // 名簿の一括事前登録（承認不要で active になる）
@@ -560,38 +504,12 @@ function tpGenerateAIPortfolio(classCode, payloadJson) {
 
     // AI には実名（表示名）を渡さない。対象児童は「対象児童」、ほかの子は「児童A」…に置き換え、
     // ピンのメモやチャット本文に書かれた友達の名前・連絡先もまとめて消してから送る。
-    const aliasMap = createNameAliases_(
+    // 組み立ては corePortfolioPrompt_（Tenant.gs）に 1 本化してある。
+    const built = corePortfolioPrompt_(
       getMembers_(ss).map(function (m) { return m.displayName; }),
-      member.displayName
-    );
+      member.displayName, pins, chats, reactions);
 
-    let prompt = 'あなたは小学校の先生です。児童「対象児童」' +
-      'の「地図学習」での活動記録を分析し、温かいフィードバックを作成してください。\n' +
-      '※児童名は「対象児童」「児童A」のような仮名にしてあります。返事でも仮名のまま書いてください。\n\n';
-    prompt += '【ピンを刺した記録】\n';
-    pins.forEach(function (pin) {
-      prompt += '- 発見対象[' + redactForAi_(pin.title, aliasMap.aliases) + ']: メモ['
-        + (redactForAi_(pin.memo, aliasMap.aliases) || 'なし') + '] アイコン[' + pin.color + ']\n';
-    });
-    prompt += '\n【発言記録】\n';
-    chats.forEach(function (chat) { prompt += '- ' + redactForAi_(chat.message, aliasMap.aliases) + '\n'; });
-    prompt += '\n【友達へのリアクション回数】: ' + reactions.length + '回\n';
-    prompt += '\n以下の3項目で出力してください。\n1. 🔍 興味関心の傾向（どんなものに目を向けているか）\n' +
-      '2. ✨ 素晴らしい点（表現や友達への関わりの良さ）\n3. 💌 先生からのメッセージ（小学生に向けて優しい言葉で）';
-
-    // 通信・再試行・応答の取り出しは正本 Gemini.gs（GigaGemini）に任せる。
-    // ここに直書きしていた頃は再試行が無く、混み合う時間帯（429）に
-    // ポートフォリオ生成がそのまま失敗していた。API キーは正本側で
-    // x-goog-api-key ヘッダに載る（URL クエリには入れない）。
-    const aiText = GigaGemini.call({
-      apiKey: apiKey,
-      prompt: prompt,
-      model: 'gemini-2.5-flash',
-      systemInstruction: 'あなたは優しく、児童の良いところを見つけるのが得意な先生です。マークダウンを使用せず、プレーンテキストで見やすく出力してください。'
-    });
-
-    // 先生の画面では実名で読めるよう、仮名を表示名に戻してから返す。
-    return jsonOk_({ portfolio: rehydrateAliases_(aiText, aliasMap.reverse) });
+    return jsonOk_({ portfolio: coreRunPortfolio_(apiKey, built) });
   } catch (e) { return jsonErr_(e); }
 }
 

@@ -2505,6 +2505,7 @@ var qrcode = function() {
       // CDN ブロックで Babel が動かない環境でも到達を通知するため、ここには置かない。
 
       // ── API ラッパー ──
+      //  bound  : bd<name>(...)          — コンテナバインド版（先生ごとに 1 デプロイ）
       //  student: st<name>(idToken, classCode, ...) — トークン期限切れは自動再取得してリトライ
       //  teacher: tp<name>(classCode, ...)
       //  legacy : lg<name>(...)
@@ -2517,6 +2518,11 @@ var qrcode = function() {
             res = await runGas('st' + name, token, classCode, ...args);
           } else if (mode === 'teacher') {
             res = await runGas('tp' + name, classCode, ...args);
+          } else if (mode === 'bound') {
+            // 束ねられたスプレッドシートが 1 つのクラスそのものなので、
+            // クラスコードもトークンも渡さない。本人確認はサーバー側の
+            // Session.getActiveUser() で行う（Bound.gs）。
+            res = await runGas('bd' + name, ...args);
           } else {
             res = await runGas('lg' + name, ...args);
           }
@@ -2773,6 +2779,160 @@ var qrcode = function() {
         );
       };
 
+      // ==========================================
+      // 学級の管理（コンテナバインド版のみ）
+      //
+      // 共通デプロイ版ではポータルの ClassManage がやっていたこと
+      // （参加の承認・名簿から外す・受付の開閉）を、ポータルの無いこの形のために置く。
+      // どの操作もサーバー側（Bound.gs）で先生かどうかを確かめてから実行される。
+      // ==========================================
+      const BoundClassPanel = () => {
+        const { showToast, doAction } = useContext(AppContext);
+        const [info, setInfo] = useState(null);
+        const [error, setError] = useState(null);
+        const [busy, setBusy] = useState(false);
+        const [selected, setSelected] = useState({});
+        const [schema, setSchema] = useState(null);
+        const [classNameInput, setClassNameInput] = useState('');
+
+        const load = async () => {
+          setError(null);
+          try {
+            const res = await runGas('bdListMembers');
+            if (res && res.success === false) throw new Error(res.error || res.message);
+            setInfo(res);
+            setClassNameInput(res.className || '');
+          } catch (e) { setError(e.message || 'エラーが発生しました'); }
+        };
+        useEffect(() => { load(); }, []);
+
+        const run = async (action, data, okMsg) => {
+          setBusy(true);
+          try { await doAction(action, data || {}); if (okMsg) showToast(okMsg); await load(); }
+          catch (e) { showToast(e.message || 'エラーが発生しました', 'error'); }
+          setBusy(false);
+        };
+
+        const checkSchema = async () => {
+          setBusy(true);
+          try {
+            const res = await runGas('bdCheckSchema');
+            if (res && res.success === false) throw new Error(res.error || res.message);
+            setSchema(res);
+          } catch (e) { showToast(e.message || 'エラーが発生しました', 'error'); }
+          setBusy(false);
+        };
+
+        const repairSchema = async () => {
+          setBusy(true);
+          try {
+            const res = await doAction('repair_schema', {});
+            const lines = [].concat(res.done || [], res.skipped || []);
+            showToast(lines.length ? '直しました（' + lines.length + ' 件）' : '直すところはありませんでした');
+            await checkSchema();
+          } catch (e) { showToast(e.message || 'エラーが発生しました', 'error'); }
+          setBusy(false);
+        };
+
+        if (error) return (
+          <div className="max-w-3xl mx-auto w-full p-6 sm:p-10">
+            <p className="text-rose-500 font-bold mb-4">{error}</p>
+            <button onClick={load} className="bg-slate-800 text-white px-6 py-3 rounded-xl font-bold">もう一度ためす</button>
+          </div>
+        );
+        if (!info) return <div className="p-20 flex justify-center"><div className="animate-spin rounded-full h-12 w-12 border-t-4 border-b-4 border-brand-500"></div></div>;
+
+        const pending = info.members.filter(m => m.status === 'pending');
+        const active = info.members.filter(m => m.status === 'active' && m.role !== 'teacher');
+        const chosen = Object.keys(selected).filter(k => selected[k]);
+
+        return (
+          <div className="max-w-3xl mx-auto w-full p-6 sm:p-10 space-y-6 animate-pop-in">
+
+            {/* 参加の承認 */}
+            <section className="bg-white p-8 rounded-3xl shadow-soft border border-slate-100">
+              <h3 className="font-extrabold text-slate-800 text-xl mb-2 flex items-center gap-2"><span>🙋</span> 参加の承認（{pending.length} 人）</h3>
+              <p className="text-sm text-slate-500 mb-6">承認するまで、その子は地図を見ることも書きこむこともできません。</p>
+              {pending.length === 0 ? (
+                <p className="text-sm text-slate-400 bg-slate-50 rounded-xl p-4 border border-slate-200">いま待っている人はいません。</p>
+              ) : (
+                <div className="space-y-2 mb-4">
+                  {pending.map(m => (
+                    <label key={m.email} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer">
+                      <input type="checkbox" checked={!!selected[m.email]} onChange={e=>setSelected(p=>({...p, [m.email]: e.target.checked}))} className="w-5 h-5 accent-brand-500" />
+                      <span className="font-bold text-slate-700">{m.displayName || '(名前なし)'}</span>
+                      {m.number && <span className="text-xs text-slate-400 font-bold">{m.number}番</span>}
+                      <span className="text-xs text-slate-400 ml-auto break-all">{m.email}</span>
+                    </label>
+                  ))}
+                </div>
+              )}
+              {pending.length > 0 && (
+                <div className="flex gap-2 flex-wrap">
+                  <button disabled={busy || !chosen.length} onClick={()=>{ run('approve_members', { emails: chosen }, '承認しました'); setSelected({}); }} className="bg-brand-500 text-white px-6 py-3 rounded-xl font-bold disabled:opacity-50">選んだ人を承認する</button>
+                  <button disabled={busy} onClick={()=>{ run('approve_members', { emails: pending.map(m=>m.email) }, '全員を承認しました'); setSelected({}); }} className="bg-slate-800 text-white px-6 py-3 rounded-xl font-bold disabled:opacity-50">全員まとめて承認</button>
+                </div>
+              )}
+            </section>
+
+            {/* 参加している人 */}
+            <section className="bg-white p-8 rounded-3xl shadow-soft border border-slate-100">
+              <h3 className="font-extrabold text-slate-800 text-xl mb-2 flex items-center gap-2"><span>👥</span> 参加している人（{active.length} 人）</h3>
+              <p className="text-sm text-slate-500 mb-6">名簿から外しても、その子が書いた記録は消えません（もう一度承認すれば戻れます）。</p>
+              <div className="space-y-2">
+                {active.map(m => (
+                  <div key={m.email} className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl border border-slate-200">
+                    <span className="font-bold text-slate-700">{m.displayName || '(名前なし)'}</span>
+                    {m.number && <span className="text-xs text-slate-400 font-bold">{m.number}番</span>}
+                    <span className="text-xs text-slate-400 ml-auto break-all">{m.email}</span>
+                    <button disabled={busy} onClick={()=>run('remove_member', { email: m.email }, '名簿から外しました')} className="text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200 px-3 py-1.5 rounded-full shrink-0">外す</button>
+                  </div>
+                ))}
+                {active.length === 0 && <p className="text-sm text-slate-400 bg-slate-50 rounded-xl p-4 border border-slate-200">まだ誰も参加していません。</p>}
+              </div>
+            </section>
+
+            {/* 学級の設定 */}
+            <section className="bg-white p-8 rounded-3xl shadow-soft border border-slate-100">
+              <h3 className="font-extrabold text-slate-800 text-xl mb-6 flex items-center gap-2"><span>⚙️</span> 学級の設定</h3>
+              <label className="block text-[11px] font-bold text-slate-500 mb-2 uppercase tracking-wider">学級の名前（児童の画面に出ます）</label>
+              <div className="flex gap-2 mb-6">
+                <input type="text" value={classNameInput} onChange={e=>setClassNameInput(e.target.value)} placeholder="3年2組" className="flex-1 px-5 py-3 border border-slate-200 rounded-xl bg-slate-50 font-bold focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition" />
+                <button disabled={busy} onClick={()=>run('set_class_name', { name: classNameInput.trim() }, '学級の名前を保存しました')} className="bg-slate-800 text-white px-6 rounded-xl font-bold disabled:opacity-50">保存</button>
+              </div>
+              <div className="space-y-3">
+                <label className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer">
+                  <input type="checkbox" checked={info.joinOpen} disabled={busy} onChange={e=>run('set_join_open', { value: e.target.checked })} className="w-5 h-5 accent-brand-500" />
+                  <span className="font-bold text-slate-700 text-sm">新しい参加を受けつける</span>
+                </label>
+                <label className="flex items-center gap-3 p-4 bg-slate-50 rounded-xl border border-slate-200 cursor-pointer">
+                  <input type="checkbox" checked={info.requireApproval} disabled={busy} onChange={e=>run('set_require_approval', { value: e.target.checked })} className="w-5 h-5 accent-brand-500" />
+                  <span className="font-bold text-slate-700 text-sm">参加には先生の承認を必要にする</span>
+                </label>
+              </div>
+              <p className="text-xs text-slate-400 mt-4 leading-relaxed">先生として登録されているアカウント: <span className="font-mono break-all">{info.teacherEmail || '(未登録)'}</span></p>
+            </section>
+
+            {/* シートの点検 */}
+            <section className="bg-white p-8 rounded-3xl shadow-soft border border-slate-100">
+              <h3 className="font-extrabold text-slate-800 text-xl mb-2 flex items-center gap-2"><span>🩺</span> シートの点検</h3>
+              <p className="text-sm text-slate-500 mb-6 leading-relaxed">
+                このアプリは、スプレッドシートの列を<strong>見出しの名前</strong>で読み書きします。列を足したり並べ替えたりしても動きますが、
+                見出しごと消えると読めなくなります。ここで確かめられます。
+                <br />「足りないところを直す」は<strong>足すことしかしません</strong>（列を消したり動かしたりはしません）。
+              </p>
+              <div className="flex gap-2 flex-wrap mb-4">
+                <button disabled={busy} onClick={checkSchema} className="bg-brand-500 text-white px-6 py-3 rounded-xl font-bold disabled:opacity-50">シートを点検する</button>
+                <button disabled={busy || !schema || !schema.fixable} onClick={repairSchema} className="bg-slate-800 text-white px-6 py-3 rounded-xl font-bold disabled:opacity-50">足りないところを直す</button>
+              </div>
+              {schema && (
+                <pre className={`text-xs leading-relaxed whitespace-pre-wrap p-4 rounded-xl border ${schema.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>{schema.report}</pre>
+              )}
+            </section>
+          </div>
+        );
+      };
+
       const TeacherConsole = ({ onClose }) => {
         const { state, dispatch, showToast, ctx, api, doAction } = useContext(AppContext);
         const [activeTab, setActiveTab] = useState('dashboard');
@@ -2862,6 +3022,9 @@ var qrcode = function() {
                   { id: 'dashboard', icon: '📊', label: '学習分析' },
                   { id: 'unit', icon: '🗺️', label: '単元・設定' },
                   { id: 'roster', icon: '👥', label: '名簿登録' },
+                  // 共通デプロイ版では参加の承認はクラス管理画面（ポータル）にある。
+                  // コンテナバインド版にはポータルが無いので、ここに置く。
+                  ...(ctx.mode === 'bound' ? [{ id: 'class', icon: '🏫', label: '学級の管理' }] : []),
                   { id: 'settings', icon: '⚙️', label: 'AI設定' }
                 ].map(tab => (
                   <button key={tab.id} onClick={()=>setActiveTab(tab.id)} className={`px-5 py-4 font-bold text-sm whitespace-nowrap border-b-2 transition-colors flex items-center gap-2 ${activeTab===tab.id ? 'border-brand-500 text-brand-600' : 'border-transparent text-slate-400 hover:text-slate-600 hover:bg-slate-50'}`}>
@@ -3074,7 +3237,12 @@ var qrcode = function() {
                   <div className="max-w-3xl mx-auto w-full p-6 sm:p-10 animate-pop-in">
                     <div className="bg-white p-8 rounded-3xl shadow-soft border border-slate-100">
                       <h3 className="font-extrabold text-slate-800 text-xl mb-2 flex items-center gap-2"><span>👥</span> 児童の登録（名簿）</h3>
-                      {ctx.mode !== 'legacy' && (
+                      {ctx.mode === 'bound' && (
+                        <div className="bg-brand-50 border border-brand-100 rounded-xl p-4 mb-4 text-sm text-brand-900 font-medium">
+                          💡 児童は先生が配った URL を開くだけで参加申請ができます。ここでの一括登録は<strong>承認なしで即参加</strong>になります。参加申請の承認は「学級の管理」タブで行ってください。
+                        </div>
+                      )}
+                      {ctx.mode !== 'legacy' && ctx.mode !== 'bound' && (
                         <div className="bg-brand-50 border border-brand-100 rounded-xl p-4 mb-4 text-sm text-brand-900 font-medium">
                           💡 児童は「クラス用URL（QRコード）」から自分で参加申請もできます。ここでの一括登録は<strong>承認なしで即参加</strong>になります。参加申請の承認はクラス管理画面で行ってください。
                         </div>
@@ -3091,6 +3259,9 @@ var qrcode = function() {
                     </div>
                   </div>
                 )}
+
+                {/* 🏫 学級の管理（コンテナバインド版のみ） */}
+                {activeTab === 'class' && <BoundClassPanel />}
 
                 {/* ⚙️ AI設定 */}
                 {activeTab === 'settings' && (
@@ -4593,6 +4764,131 @@ var qrcode = function() {
       };
 
       // ==========================================
+      // 学級ゲート（コンテナバインド版 / 先生ごとに 1 デプロイ）
+      //
+      // クラスコードも共通シェルも無い。この URL がその学級そのものなので、
+      // サーバー（Bound.gs）が「開いている本人が誰か」「先生か児童か」を返す。
+      // 画面の出し分けは案内のためであって、防御ではない（防御はサーバー側）。
+      // ==========================================
+      const BoundGate = () => {
+        const api = useMemo(() => makeApi('bound', ''), []);
+        const doAction = useMemo(() => makeDoAction('bound', api), [api]);
+        const [phase, setPhase] = useState({ type: 'connecting' });
+        const [joinForm, setJoinForm] = useState({ name: '', number: '' });
+        const [joining, setJoining] = useState(false);
+
+        const checkStatus = async () => {
+          try {
+            const res = await api('GetStatus');
+            if (res.state === 'teacher' || res.state === 'active') setPhase({ type: 'app' });
+            else if (res.state === 'pending') setPhase({ type: 'pending', className: res.className });
+            else if (res.state === 'closed') setPhase({ type: 'closed', className: res.className });
+            else if (res.state === 'setup') setPhase({ type: 'setup', message: res.message });
+            else setPhase({ type: 'join', className: res.className, requireApproval: res.requireApproval });
+          } catch (e) {
+            setPhase({ type: 'error', message: e.message });
+          }
+        };
+
+        useEffect(() => { checkStatus(); }, []);
+
+        // 承認待ち・準備待ちの間は 20 秒ごとに状態を再確認（承認されたら自動で入室）
+        useEffect(() => {
+          if (phase.type !== 'pending' && phase.type !== 'setup') return;
+          const t = setInterval(checkStatus, 20000);
+          return () => clearInterval(t);
+        }, [phase.type]);
+
+        const handleJoin = async () => {
+          if (!joinForm.name.trim()) return;
+          setJoining(true);
+          try {
+            const res = await api('Join', joinForm.name.trim(), joinForm.number.trim());
+            if (res.state === 'active') setPhase({ type: 'app' });
+            else setPhase({ type: 'pending', className: phase.className });
+          } catch (e) {
+            setPhase({ type: 'error', message: e.message });
+          }
+          setJoining(false);
+        };
+
+        if (phase.type === 'connecting') return <LoadingOverlay label={<span>つないでいます...</span>} />;
+
+        if (phase.type === 'app') {
+          const ctx = { mode: 'bound', classCode: '', api, doAction };
+          return <MainApp ctx={ctx} />;
+        }
+
+        const Card = ({ children, color = 'brand-500' }) => (
+          <div className="app-h flex items-center justify-center bg-surface p-4">
+            <div className={`bg-white p-10 sm:p-12 rounded-[32px] shadow-float text-center max-w-md w-full border-t-[10px] border-${color} relative overflow-hidden animate-pop-in`}>
+              {children}
+            </div>
+          </div>
+        );
+
+        if (phase.type === 'join') return (
+          <Card>
+            <span className="text-6xl block mb-4">👋</span>
+            <h1 className="text-2xl font-extrabold text-slate-800 mb-1">{phase.className || 'みっけ！'}</h1>
+            <p className="text-sm text-slate-500 font-bold mb-6"><RubyText text="参加" kana="さんか" />の<RubyText text="申請" kana="しんせい" />をしよう</p>
+            <div className="space-y-3 text-left">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 mb-1"><RubyText text="表示" kana="ひょうじ" />する<RubyText text="名前" kana="なまえ" />（ニックネームでもOK）</label>
+                <input type="text" value={joinForm.name} onChange={e=>setJoinForm(p=>({...p, name: e.target.value}))} placeholder="たろう" className="w-full px-5 py-4 border border-slate-200 rounded-xl bg-slate-50 font-bold focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition" />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-500 mb-1"><RubyText text="出席番号" kana="しゅっせきばんごう" />（なくてもOK）</label>
+                <input type="text" value={joinForm.number} onChange={e=>setJoinForm(p=>({...p, number: e.target.value}))} placeholder="12" className="w-full px-5 py-4 border border-slate-200 rounded-xl bg-slate-50 font-bold focus:ring-2 focus:ring-brand-500 focus:bg-white outline-none transition" />
+              </div>
+            </div>
+            <button onClick={handleJoin} disabled={joining || !joinForm.name.trim()} className="w-full mt-6 bg-brand-500 text-white py-4 rounded-xl font-bold text-lg hover:bg-brand-600 transition shadow-float disabled:opacity-50">
+              {joining ? <span><RubyText text="申請中" kana="しんせいちゅう" />...</span> : <span><RubyText text="参加" kana="さんか" />する！</span>}
+            </button>
+            {phase.requireApproval && <p className="text-[11px] text-slate-400 mt-4"><RubyText text="先生" kana="せんせい" />が<RubyText text="承認" kana="しょうにん" />すると<RubyText text="使" kana="つか" />えるようになるよ</p>}
+          </Card>
+        );
+
+        if (phase.type === 'pending') return (
+          <Card color="amber-400">
+            <span className="text-6xl block mb-4 animate-bounce-pin">⏳</span>
+            <h1 className="text-2xl font-extrabold text-slate-800 mb-3"><RubyText text="承認" kana="しょうにん" />を<RubyText text="待" kana="ま" />っています</h1>
+            <p className="text-sm text-slate-500 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-100">
+              <RubyText text="先生" kana="せんせい" />が「OK」すると、<RubyText text="自動" kana="じどう" />でこの<RubyText text="画面" kana="がめん" />が<RubyText text="切" kana="き" />りかわるよ。<br/>このまま<RubyText text="待" kana="ま" />っていてね！
+            </p>
+          </Card>
+        );
+
+        if (phase.type === 'closed') return (
+          <Card color="slate-400">
+            <span className="text-6xl block mb-4">🚪</span>
+            <h1 className="text-2xl font-extrabold text-slate-800 mb-3"><RubyText text="受付" kana="うけつけ" />が<RubyText text="閉" kana="と" />じています</h1>
+            <p className="text-sm text-slate-500 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-100">いまは<RubyText text="新" kana="あたら" />しく<RubyText text="参加" kana="さんか" />できません。<RubyText text="先生" kana="せんせい" />に<RubyText text="確認" kana="かくにん" />してね。</p>
+          </Card>
+        );
+
+        // 先生がまだ「はじめの設定」をしていない。ここで開いた人を先生にはしない。
+        if (phase.type === 'setup') return (
+          <Card color="amber-400">
+            <span className="text-6xl block mb-4">🛠️</span>
+            <h1 className="text-xl font-extrabold text-slate-800 mb-3">じゅんびちゅうです</h1>
+            <p className="text-sm text-slate-600 leading-relaxed bg-slate-50 p-4 rounded-xl border border-slate-100 text-left">
+              {phase.message || '先生の準備がまだ終わっていません。'}
+            </p>
+            <p className="text-[11px] text-slate-400 mt-4">じゅんびができると、この画面はひとりでに切りかわります。</p>
+          </Card>
+        );
+
+        return (
+          <Card color="rose-400">
+            <span className="text-6xl block mb-4">⚠️</span>
+            <p className="font-bold text-slate-700 leading-relaxed text-sm whitespace-pre-wrap">{phase.message || 'エラーが発生しました'}</p>
+            <button onClick={()=>{ setPhase({type:'connecting'}); checkStatus(); }} className="mt-6 bg-slate-800 text-white px-8 py-3 rounded-xl font-bold hover:bg-black transition">もう一度ためす</button>
+          </Card>
+        );
+      };
+
+      // ==========================================
       // Landing（exec URL 直叩き時の誘導）
       // ==========================================
       const Landing = () => (
@@ -4642,6 +4938,7 @@ var qrcode = function() {
       const Root = () => {
         if (BOOT.mode === 'teacher') return <TeacherPortal />;
         if (BOOT.mode === 'student') return <StudentGate />;
+        if (BOOT.mode === 'bound') return <BoundGate />;
         if (BOOT.mode === 'legacy') {
           const ctx = { mode: 'legacy', classCode: '', api: makeApi('legacy', '') };
           ctx.doAction = makeDoAction('legacy', ctx.api);
