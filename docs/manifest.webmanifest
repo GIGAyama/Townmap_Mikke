@@ -5,7 +5,7 @@
   "lang": "ja",
   "dir": "ltr",
   "id": "./",
-  "start_url": "./class.html",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "display_override": [

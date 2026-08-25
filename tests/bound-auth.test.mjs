@@ -250,6 +250,17 @@ test('AI 生成は先生だけ', () => {
   assert.equal(res.code, 'FORBIDDEN');
 });
 
+test('authorizeApp は、エディタ以外から呼ぶと先生のメールを返さない', () => {
+  const ss = container({ members: activeStudent });
+  // 児童のブラウザから: active(児童) !== effective(先生)
+  const asStudent = loadGas({ ss, activeUser: STUDENT, effectiveUser: TEACHER }).ctx;
+  assert.throws(() => asStudent.authorizeApp(), /FORBIDDEN/);
+
+  // GAS エディタから: active === effective
+  const asEditor = loadGas({ ss, activeUser: TEACHER, effectiveUser: TEACHER }).ctx;
+  assert.match(asEditor.authorizeApp(), /実行者: /);
+});
+
 test('公開エンドポイントに、認可の無いものが増えていない', () => {
   // 末尾 `_` の無いトップレベル関数は google.script.run から誰でも呼べる。
   // 増やしたときに「認可を書いたか」を必ず考えるよう、一覧を固定しておく。
@@ -258,20 +269,9 @@ test('公開エンドポイントに、認可の無いものが増えていな�
     'doGet', 'authorizeApp', 'onOpen',
     // スプレッドシートのメニュー（getUi() を先に取るので画面が無い文脈では止まる）
     'showSheetCheck', 'runSheetRepair', 'showClassInfo', 'runInitialSetup',
-    // コンテナバインド版
+    // アプリ本体
     'bdGetStatus', 'bdJoin', 'bdGetInitData', 'bdSyncData', 'bdExecuteAction',
-    'bdListMembers', 'bdCheckSchema', 'bdGenerateAIPortfolio', 'bdUploadImage', 'bdGetImage',
-    // 共通デプロイ版（児童）
-    'stGetStatus', 'stJoin', 'stGetInitData', 'stSyncData', 'stSubmit', 'stListMine',
-    'stUpdateMine', 'stDeleteMine', 'stUploadImage', 'stGetImage',
-    // 共通デプロイ版（教員ポータル）
-    'tpGetMyPortal', 'tpCreateClass', 'tpRegisterExisting', 'tpListMembers', 'tpApprove',
-    'tpRemove', 'tpSetJoinOpen', 'tpSetRequireApproval', 'tpRotateCode', 'tpRevokeClass',
-    'tpGetInitData', 'tpSyncData', 'tpExecuteAction', 'tpGenerateAIPortfolio',
-    'tpUploadImage', 'tpGetImage',
-    // 旧バインド型
-    'lgGetInitData', 'lgSyncData', 'lgExecuteAction', 'lgGenerateAIPortfolio',
-    'lgUploadImage', 'lgGetImage'
+    'bdListMembers', 'bdCheckSchema', 'bdGenerateAIPortfolio', 'bdUploadImage', 'bdGetImage'
   ]);
 
   const found = new Set();

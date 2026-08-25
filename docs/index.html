@@ -22,23 +22,6 @@
   <meta property="og:locale" content="ja_JP">
   <meta name="twitter:card" content="summary_large_image">
 
-  <!--
-    すでに配ってある児童用リンク（…/?c=クラスコード）は、このページに来る。
-    案内ページを見せてしまうと授業が止まるので、クラスコードが付いていたら
-    アプリのシェル（class.html）へそのまま送る。**このページの中で
-    いちばん先に置くこと**（下の CSS や画像を待たせない）。
-  -->
-  <script>
-    (function () {
-      try {
-        var q = window.location.search || '';
-        if (/[?&]c=[A-Za-z0-9]/.test(q)) {
-          window.location.replace('class.html' + q + (window.location.hash || ''));
-        }
-      } catch (e) { /* 送れなければ、そのまま案内ページを見せる */ }
-    })();
-  </script>
-
   <style>
     :root {
       color-scheme: light dark;
@@ -230,11 +213,6 @@
         <strong>先生ご自身も含めて誰も入れません</strong>（そう表示されます）。</p>
     </div>
 
-    <h3>すでに使っている学級について</h3>
-    <p>共通の入口（<code>townmap-mikke.giga-school.com/?c=…</code>）から使っている学級は、
-      これまでどおり動きます。配ってあるリンクもそのまま使えます。
-      新しい配り方に移すかどうかは、学級の区切りで決めていただければ大丈夫です。</p>
-
     <h2>情報担当の先生へ</h2>
     <div class="table-wrap">
       <table>
@@ -246,7 +224,7 @@
             <th>フィルタリングで通すもの</th>
             <td data-label="このアプリの場合">アプリ本体が置かれる <code>script.google.com</code> と
               <code>googleusercontent.com</code>。画面の部品に <code>unpkg.com</code> と
-              <code>cdn.tailwindcss.com</code> を読みます。</td>
+              <code>cdn.tailwindcss.com</code> を読みます（このページ自体はアプリではありません）。</td>
           </tr>
           <tr>
             <th>データの置き場所</th>
@@ -308,8 +286,7 @@
       <a href="https://giga-school.com/apps/townmap-mikke/">紹介記事</a>　/
       <a href="https://github.com/GIGAyama/Townmap_Mikke" rel="noopener">GitHub</a>　/
       <a href="privacy.html">プライバシーポリシー</a>　/
-      <a href="terms.html">利用規約</a>　/
-      <a href="diag.html">接続診断</a>
+      <a href="terms.html">利用規約</a>
     </p>
     <p>みっけ！（townmap-mikke.giga-school.com）／ GIGAyama</p>
   </footer>
