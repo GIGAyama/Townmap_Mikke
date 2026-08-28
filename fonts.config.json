@@ -1,0 +1,14 @@
+{
+  "//": "書体の取りこみ方。作り直すには npm run build:fonts（ネットが要る）",
+  "family": "M PLUS Rounded 1c",
+  "weights": [700],
+  "grades": [1, 2],
+  "scan": ["src", "App.html", "tools/extra.css", "Main.gs", "Db.gs", "Schema.gs"],
+  "scanExt": [".jsx", ".html", ".css", ".gs"],
+  "embed": true,
+  "cssPath": "fonts.html",
+  "oflPath": "OFL.txt",
+  "generator": "tools/fonts/build-fonts.mjs",
+  "license": "M PLUS Rounded 1c 700 — SIL Open Font License 1.1（全文は OFL.txt）",
+  "copyright": "Copyright 2021 The M PLUS Project Authors (https://github.com/coz-m/MPLUS_FONTS)"
+}

@@ -98,6 +98,23 @@ function jsonErr_(e) {
  * 誰が先生で誰が児童かはサーバー側（Bound.gs）が決める。画面の出し分けは案内であって、
  * 防御ではない。
  */
+/**
+ * App.html の <?!= include_('x'); ?> が呼ぶ。x.html の中身をそのまま返す。
+ *
+ * ⚠️ 名前の末尾に _ を付けること。付けないと google.script.run から誰でも
+ *    呼べる公開エンドポイントになる（tests/bound-auth.test.mjs が数えている）。
+ *
+ * ⚠️ getRawContent() を使うこと。createHtmlOutputFromFile(...).getContent() は
+ *    中身を **HTML として読み直して組み立て直す**。app.html の中身は <script> 1 個ぶんの
+ *    JavaScript で、その中には HTML の断片を組み立てる文字列がある。読み直されると
+ *    その断片が本物のタグとして扱われ、バッククォートの対応が崩れた JavaScript が
+ *    返ってくる。Reflection_Journal で 2026-08-24 に「タブに題は出るが画面が出ない」
+ *    という形で実際に起きている。
+ */
+function include_(filename) {
+  return HtmlService.createTemplateFromFile(filename).getRawContent();
+}
+
 function doGet(e) {
   const p = (e && e.parameter) || {};
   if (p.diag === '1') return doGetDiag_();

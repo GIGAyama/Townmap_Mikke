@@ -19,3 +19,9 @@
 !appsscript.json
 !*.gs
 !App.html
+# 生成物（npm run build / npm run build:fonts が作る）。
+# App.html が include() で読むので、送らないと画面が出ません。
+!vendor.html
+!css.html
+!app.html
+!fonts.html
