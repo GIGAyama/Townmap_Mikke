@@ -15,6 +15,18 @@
     {
       "canonical": "sw/build-sw-static.mjs",
       "local": "tools/build-sw.mjs"
+    },
+    {
+      "canonical": "fonts/build-fonts.mjs",
+      "local": "tools/fonts/build-fonts.mjs"
+    },
+    {
+      "canonical": "fonts/chars.mjs",
+      "local": "tools/fonts/chars.mjs"
+    },
+    {
+      "canonical": "fonts/ofl.mjs",
+      "local": "tools/fonts/ofl.mjs"
     }
   ],
   "dirs": [

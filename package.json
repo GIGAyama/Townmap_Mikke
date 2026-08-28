@@ -12,10 +12,15 @@
     "deploy": "node scripts/gas-deploy.mjs deploy",
     "build:sw": "node tools/build-sw.mjs",
     "test": "node --test tests/*.test.mjs",
-    "check": "node tools/build-sw.mjs --check && node tools/check-syntax.mjs && node tools/check-app-html.mjs && npm test"
+    "check": "npm run build && node tools/check-generated.mjs && node tools/build-sw.mjs --check && node tools/check-syntax.mjs && npm test",
+    "build": "node tools/build.mjs",
+    "build:fonts": "node tools/fonts/build-fonts.mjs"
   },
   "devDependencies": {
     "@babel/core": "^7.28.0",
-    "@babel/preset-react": "^7.27.0"
+    "@babel/preset-react": "^7.27.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "tailwindcss": "3.4.17"
   }
 }
