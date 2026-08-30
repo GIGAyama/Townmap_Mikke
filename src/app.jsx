@@ -1714,12 +1714,19 @@ const MainApp = ({ ctx, onExit }) => {
           <MyNotesPanel isOpen={uiState.notesOpen} onClose={()=>setUiState(p=>({...p, notesOpen: false}))} />
         </div>
 
-        {/* モバイルでは地図領域を最大化するためフッターを表示しない */}
-        <footer className="flex-none h-8 hidden md:flex justify-center items-center bg-white border-t border-slate-200 text-[10px] sm:text-xs text-slate-400 font-bold z-50 tracking-wider no-print">
-          © 2026 みっけ！ <a href="https://giga-school.com" target="_blank" className="ml-1.5 text-slate-500 hover:text-brand-500 transition">GIGA山</a>
-          {/* ⚠️ このフッターは hidden md:flex。地図を広く使うため、スマホでは出ない。
-                 リンクもスマホでは出ないので、行き先を増やすときは他の場所も要る。 */}
-          <a href="https://giga-school.com/apps/townmap-mikke/" target="_blank" rel="noopener noreferrer" className="ml-3 text-slate-500 hover:text-brand-500 transition">使い方を読む</a>
+        {/* フッター。1 行に収める。地図を広く使いたいので、これ以上は太らせない。
+
+            ⚠️ 2026-08-30 まで hidden md:flex だった（地図を広く使うため、
+               768px より狭い端末では出さない）。児童が使うのは多くが
+               タブレットとスマホなので、**利用規約とプライバシーへ辿れるのが
+               いちばん必要な端末で、いちばん辿れない**形になっていた。
+               消さずに、1 行ぶんまで細くして全部の端末で出す（実測 26px）。
+            ⚠️ min-w-0 を落とさないこと。行き先は折り返さないので、
+               これが無いと最小幅が段を押し広げ、狭い画面で横に溢れる。
+            中身は正本の部品が出す（giga_links.html）。 */}
+        <footer className="flex-none flex flex-nowrap justify-center items-center gap-2 min-w-0 bg-white border-t border-slate-200 text-[10px] sm:text-xs text-slate-400 font-bold z-50 tracking-wider no-print">
+          <span className="min-w-0 truncate">© 2026 みっけ！ <a href="https://giga-school.com" target="_blank" className="ml-1.5 text-slate-500 hover:text-brand-500 transition">GIGA山</a></span>
+          <span data-giga-links></span>
         </footer>
 
         {uiState.teacherOpen && <TeacherConsole onClose={()=>setUiState(p=>({...p, teacherOpen: false}))} />}

@@ -25,3 +25,6 @@
 !css.html
 !app.html
 !fonts.html
+# 利用規約・プライバシーへの行き先（生成物。tools/build-app-links.mjs が作る）。
+# App.html が include() で読むので、送らないと GAS の画面だけリンクが出ません。
+!giga_links.html
