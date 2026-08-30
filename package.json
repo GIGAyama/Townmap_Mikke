@@ -12,9 +12,10 @@
     "deploy": "node scripts/gas-deploy.mjs deploy",
     "build:sw": "node tools/build-sw.mjs",
     "test": "node --test tests/*.test.mjs",
-    "check": "npm run build && node tools/check-generated.mjs && node tools/build-sw.mjs --check && node tools/check-syntax.mjs && npm test",
+    "check": "node tools/build-app-links.mjs --check && npm run build && node tools/check-generated.mjs && node tools/build-sw.mjs --check && node tools/check-syntax.mjs && npm test",
     "build": "node tools/build.mjs",
-    "build:fonts": "node tools/fonts/build-fonts.mjs"
+    "build:fonts": "node tools/fonts/build-fonts.mjs",
+    "build:app-links": "node tools/build-app-links.mjs"
   },
   "devDependencies": {
     "@babel/core": "^7.28.0",

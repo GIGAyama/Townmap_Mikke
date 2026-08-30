@@ -2545,17 +2545,16 @@ const MainApp = ({
       notesOpen: false
     }))
   })), React.createElement("footer", {
-    className: "flex-none h-8 hidden md:flex justify-center items-center bg-white border-t border-slate-200 text-[10px] sm:text-xs text-slate-400 font-bold z-50 tracking-wider no-print"
+    className: "flex-none flex flex-nowrap justify-center items-center gap-2 min-w-0 bg-white border-t border-slate-200 text-[10px] sm:text-xs text-slate-400 font-bold z-50 tracking-wider no-print"
+  }, React.createElement("span", {
+    className: "min-w-0 truncate"
   }, "\xA9 2026 \u307F\u3063\u3051\uFF01 ", React.createElement("a", {
     href: "https://giga-school.com",
     target: "_blank",
     className: "ml-1.5 text-slate-500 hover:text-brand-500 transition"
-  }, "GIGA\u5C71"), React.createElement("a", {
-    href: "https://giga-school.com/apps/townmap-mikke/",
-    target: "_blank",
-    rel: "noopener noreferrer",
-    className: "ml-3 text-slate-500 hover:text-brand-500 transition"
-  }, "\u4F7F\u3044\u65B9\u3092\u8AAD\u3080")), uiState.teacherOpen && React.createElement(TeacherConsole, {
+  }, "GIGA\u5C71")), React.createElement("span", {
+    "data-giga-links": true
+  })), uiState.teacherOpen && React.createElement(TeacherConsole, {
     onClose: () => setUiState(p => ({
       ...p,
       teacherOpen: false
